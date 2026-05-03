@@ -77,17 +77,19 @@ export const cajaGuardarSchema = z.object({
     }),
 })
 
-const inventarioRowSchema = z.object({
-  divisa: z
-    .string()
-    .min(1)
-    .max(12)
-    .transform(safeDivisaCode)
-    .refine((s) => s.length >= 1, { message: 'Divisa inválida' }),
-  denominacion: z.coerce.number().positive().max(1e6),
-  cantidad: z.coerce.number().int().min(0).max(1e9),
+/** Cierre físico: montos contados por código de moneda. */
+export const finalizarCierreSchema = z.object({
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
+  manualCierre: z
+    .record(z.string(), z.number().finite().min(0, 'Montos no negativos').max(moneyMax))
+    .superRefine((val, ctx) => {
+      const keys = Object.keys(val)
+      if (keys.length > 40) ctx.addIssue({ code: 'custom', message: 'Demasiadas monedas' })
+      for (const k of keys) {
+        if (!/^[A-Z0-9_]{1,12}$/i.test(k)) {
+          ctx.addIssue({ code: 'custom', message: 'Código de moneda inválido' })
+          break
+        }
+      }
+    }),
 })
-
-export const inventarioPayloadSchema = z
-  .array(inventarioRowSchema)
-  .max(500, 'Demasiadas filas de inventario')

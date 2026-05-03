@@ -28,9 +28,8 @@ export interface InventarioItem {
   id?: string
   usuario_id?: string
   divisa: string
-  denominacion: number
-  cantidad: number
-  updated_at?: string
+  cantidad_actual: number
+  ultima_actualizacion?: string
 }
 
 export interface TrmRegistro {
@@ -66,3 +65,22 @@ export interface RegistroDeuda {
 export type ActionResult<T = void> =
   | ([T] extends [void] ? { ok: true } : { ok: true; data: T })
   | { ok: false; error: string; code?: string }
+
+/** Fila de auditoría al finalizar cierre (tabla `cierres_diarios`). */
+export interface CierreDiarioAuditoria {
+  id: string
+  usuario_id: string
+  fecha: string
+  moneda: string
+  monto_inicial: number
+  promedio_inicial: number
+  total_compra_monto: number
+  promedio_compra_dia: number
+  total_venta_monto: number
+  promedio_venta_dia: number
+  cierre_estimado_sistema: number
+  cierre_manual_fisico: number
+  diferencia_arqueo: number
+  ganancia_neta_cop: number
+  created_at: string
+}

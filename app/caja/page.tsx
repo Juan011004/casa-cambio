@@ -4,31 +4,55 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
-import { guardarCajaDiaria } from '@/app/actions/caja'
-import { formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
+import { guardarCajaDiaria, finalizarCierreCaja } from '@/app/actions/caja'
+import { addDaysYYYYMMDD, dayBoundsLocal, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { errorMessage } from '@/lib/errorMessage'
+import type { Transaccion } from '@/types/database'
 
-type TipoCaja = 'APERTURA' | 'CIERRE'
+function sumTxByMoneda(rows: Transaccion[], tipo: 'COMPRA' | 'VENTA'): Record<string, number> {
+  const m: Record<string, number> = {}
+  for (const r of rows) {
+    if (r.tipo !== tipo) continue
+    const k = r.moneda
+    m[k] = (m[k] ?? 0) + Number(r.monto_divisa)
+  }
+  return m
+}
+
+function sumDeudaRows(rows: { tipo: string; divisa: string; monto: number }[], tipo: 'DEBEN' | 'DEBO'): Record<string, number> {
+  const m: Record<string, number> = {}
+  for (const r of rows) {
+    if (r.tipo !== tipo) continue
+    if (r.divisa === 'COP') continue
+    m[r.divisa] = (m[r.divisa] ?? 0) + Number(r.monto)
+  }
+  return m
+}
 
 export default function CajaPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), [])
   const { rows: divisasRows } = useDivisasMaestro()
   const divisas = useMemo(() => (divisasRows.length ? divisasRows : DIVISAS_FALLBACK), [divisasRows])
 
-  const [modo, setModo] = useState<TipoCaja>('APERTURA')
-  const [montos, setMontos] = useState<Record<string, string>>({})
+  const [fecha, setFecha] = useState(() => fechaLocalYYYYMMDD())
   const [aperturaMap, setAperturaMap] = useState<Record<string, number>>({})
   const [cierreMap, setCierreMap] = useState<Record<string, number>>({})
+  const [montosApertura, setMontosApertura] = useState<Record<string, string>>({})
+  const [montosManualCierre, setMontosManualCierre] = useState<Record<string, string>>({})
+  const [comprasDia, setComprasDia] = useState<Record<string, number>>({})
+  const [ventasDia, setVentasDia] = useState<Record<string, number>>({})
+  const [debenDia, setDebenDia] = useState<Record<string, number>>({})
+  const [deboDia, setDeboDia] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [guardando, setGuardando] = useState(false)
+  const [guardandoApertura, setGuardandoApertura] = useState(false)
+  const [finalizando, setFinalizando] = useState(false)
+  const [cierreAyerPorMoneda, setCierreAyerPorMoneda] = useState<Record<string, number>>({})
 
-  const fecha = fechaLocalYYYYMMDD()
-
-  const cargarMapas = useCallback(async () => {
+  const cargar = useCallback(async () => {
     setLoading(true)
     const {
       data: { user },
@@ -36,165 +60,304 @@ export default function CajaPage() {
     if (!user) {
       setAperturaMap({})
       setCierreMap({})
+      setComprasDia({})
+      setVentasDia({})
+      setDebenDia({})
+      setDeboDia({})
       setLoading(false)
       return
     }
 
-    const { data } = await supabase
-      .from('caja_diaria')
-      .select('tipo,moneda,monto')
-      .eq('usuario_id', user.id)
-      .eq('fecha', fecha)
+    const { desde, hastaExclusive } = dayBoundsLocal(fecha)
+    const fechaAyer = addDaysYYYYMMDD(fecha, -1)
+
+    const [cajaRes, txRes, deudaRes, cierresAyerRes] = await Promise.all([
+      supabase.from('caja_diaria').select('tipo,moneda,monto').eq('usuario_id', user.id).eq('fecha', fecha),
+      supabase
+        .from('transacciones')
+        .select('*')
+        .eq('usuario_id', user.id)
+        .gte('fecha', desde)
+        .lt('fecha', hastaExclusive),
+      supabase
+        .from('deudas')
+        .select('tipo,divisa,monto')
+        .eq('usuario_id', user.id)
+        .gte('fecha', desde)
+        .lt('fecha', hastaExclusive),
+      supabase
+        .from('cierres_diarios')
+        .select('moneda,cierre_manual_fisico')
+        .eq('usuario_id', user.id)
+        .eq('fecha', fechaAyer),
+    ])
 
     const ap: Record<string, number> = {}
     const ci: Record<string, number> = {}
-    for (const r of data ?? []) {
+    for (const r of cajaRes.data ?? []) {
       const row = r as { tipo: string; moneda: string; monto: number }
       if (row.tipo === 'APERTURA') ap[row.moneda] = Number(row.monto)
       if (row.tipo === 'CIERRE') ci[row.moneda] = Number(row.monto)
     }
     setAperturaMap(ap)
     setCierreMap(ci)
+
+    const txs = (txRes.data ?? []) as Transaccion[]
+    setComprasDia(sumTxByMoneda(txs, 'COMPRA'))
+    setVentasDia(sumTxByMoneda(txs, 'VENTA'))
+
+    const debtRows = (deudaRes.data ?? []) as { tipo: string; divisa: string; monto: number }[]
+    setDebenDia(sumDeudaRows(debtRows, 'DEBEN'))
+    setDeboDia(sumDeudaRows(debtRows, 'DEBO'))
+
+    const ayer: Record<string, number> = {}
+    if (!cierresAyerRes.error) {
+      for (const r of cierresAyerRes.data ?? []) {
+        const row = r as { moneda: string; cierre_manual_fisico: number }
+        ayer[row.moneda] = Number(row.cierre_manual_fisico)
+      }
+    }
+    setCierreAyerPorMoneda(ayer)
+
     setLoading(false)
   }, [supabase, fecha])
 
   useEffect(() => {
-    void cargarMapas()
-  }, [cargarMapas])
+    void cargar()
+  }, [cargar])
 
   useEffect(() => {
-    const modoMap = modo === 'APERTURA' ? aperturaMap : cierreMap
-    const next: Record<string, string> = {}
+    const nextA: Record<string, string> = {}
     for (const d of divisas) {
-      const m = modoMap[d.codigo]
-      next[d.codigo] = m != null && Number.isFinite(m) && m !== 0 ? formatMilesEs(m, 2) : ''
+      const m = aperturaMap[d.codigo]
+      if (m != null && Number.isFinite(m)) {
+        nextA[d.codigo] = m !== 0 ? formatMilesEs(m, 2) : ''
+      } else {
+        const y = cierreAyerPorMoneda[d.codigo]
+        nextA[d.codigo] = y != null && Number.isFinite(y) && y !== 0 ? formatMilesEs(y, 2) : ''
+      }
     }
-    setMontos(next)
-  }, [modo, aperturaMap, cierreMap, divisas])
+    setMontosApertura(nextA)
+  }, [aperturaMap, cierreAyerPorMoneda, divisas])
 
-  const setMonto = (codigo: string, v: string) => {
-    setMontos((prev) => ({ ...prev, [codigo]: v }))
-  }
+  useEffect(() => {
+    const nextM: Record<string, string> = {}
+    for (const d of divisas) {
+      const m = cierreMap[d.codigo]
+      nextM[d.codigo] = m != null && Number.isFinite(m) && m !== 0 ? formatMilesEs(m, 2) : ''
+    }
+    setMontosManualCierre(nextM)
+  }, [cierreMap, divisas])
 
-  const guardar = async (e: React.FormEvent) => {
+  const codigosCierre = useMemo(() => {
+    const s = new Set<string>()
+    for (const d of divisas) s.add(d.codigo)
+    for (const k of Object.keys(aperturaMap)) s.add(k)
+    for (const k of Object.keys(comprasDia)) s.add(k)
+    for (const k of Object.keys(ventasDia)) s.add(k)
+    for (const k of Object.keys(debenDia)) s.add(k)
+    for (const k of Object.keys(deboDia)) s.add(k)
+    return Array.from(s).sort((a, b) => a.localeCompare(b))
+  }, [divisas, aperturaMap, comprasDia, ventasDia, debenDia, deboDia])
+
+  const filasCierre = useMemo(() => {
+    return codigosCierre.map((codigo) => {
+      const ap = aperturaMap[codigo] ?? 0
+      const comp = comprasDia[codigo] ?? 0
+      const vent = ventasDia[codigo] ?? 0
+      const db = debenDia[codigo] ?? 0
+      const dbo = deboDia[codigo] ?? 0
+      const estimado = ap + comp - vent - db + dbo
+      const manualStr = montosManualCierre[codigo] ?? ''
+      const manualNum = parseFlexibleNumber(manualStr)
+      const manualOk = manualStr.trim() !== '' && Number.isFinite(manualNum)
+      const diff = manualOk ? manualNum - estimado : null
+      return { codigo, ap, comp, vent, db, dbo, estimado, manualStr, diff }
+    })
+  }, [codigosCierre, aperturaMap, comprasDia, ventasDia, debenDia, deboDia, montosManualCierre])
+
+  const guardarApertura = async (e: React.FormEvent) => {
     e.preventDefault()
-    setGuardando(true)
+    setGuardandoApertura(true)
     try {
       const out: Record<string, number> = {}
       for (const d of divisas) {
-        const raw = montos[d.codigo] ?? ''
+        const raw = montosApertura[d.codigo] ?? ''
         const n = parseFlexibleNumber(raw)
-        if (raw.trim() !== '' && Number.isFinite(n)) {
-          out[d.codigo] = n
-        }
+        if (raw.trim() !== '' && Number.isFinite(n)) out[d.codigo] = n
       }
-      const res = await guardarCajaDiaria({ fecha, tipo: modo, montos: out })
+      const res = await guardarCajaDiaria({ fecha, tipo: 'APERTURA', montos: out })
       if (!res.ok) {
         toast.error(res.error)
         return
       }
-      toast.success('Caja guardada')
-      await cargarMapas()
+      toast.success('Apertura guardada')
+      await cargar()
     } catch (e: unknown) {
       toast.error(errorMessage(e))
     } finally {
-      setGuardando(false)
+      setGuardandoApertura(false)
     }
   }
 
-  const filasResumen = useMemo(() => {
-    return divisas.map((d) => {
-      const a = aperturaMap[d.codigo]
-      const c = cierreMap[d.codigo]
-      const aNum = a != null && Number.isFinite(a) ? a : null
-      const cNum = c != null && Number.isFinite(c) ? c : null
-      let diff: number | null = null
-      if (aNum != null && cNum != null) diff = cNum - aNum
-      return { codigo: d.codigo, a: aNum, c: cNum, diff }
-    })
-  }, [divisas, aperturaMap, cierreMap])
+  const onFinalizarCierre = async () => {
+    setFinalizando(true)
+    try {
+      const manualCierre: Record<string, number> = {}
+      for (const row of filasCierre) {
+        const raw = montosManualCierre[row.codigo] ?? ''
+        const n = parseFlexibleNumber(raw)
+        if (raw.trim() !== '' && Number.isFinite(n)) manualCierre[row.codigo] = n
+      }
+      if (Object.keys(manualCierre).length === 0) {
+        toast.error('Indique al menos un cierre manual contado.')
+        return
+      }
+      const res = await finalizarCierreCaja({ fecha, manualCierre })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success('Cierre finalizado e inventario actualizado')
+      await cargar()
+    } catch (e: unknown) {
+      toast.error(errorMessage(e))
+    } finally {
+      setFinalizando(false)
+    }
+  }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5 text-sm text-black">
+    <div className="mx-auto max-w-4xl space-y-6 text-[13px] text-black">
       <h1 className="text-base font-semibold">Caja diaria</h1>
-      <p className="text-xs text-slate-600">Fecha local: {fecha}</p>
 
-      <div className="flex gap-2">
-        {(['APERTURA', 'CIERRE'] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setModo(t)}
-            className={`min-h-[40px] flex-1 rounded-md border px-3 text-xs font-semibold ${
-              modo === t ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-black hover:bg-slate-50'
-            }`}
-          >
-            {t === 'APERTURA' ? 'Apertura' : 'Cierre'}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="label text-[11px]" htmlFor="fecha-caja">
+            Fecha (día operativo)
+          </label>
+          <input
+            id="fecha-caja"
+            type="date"
+            value={fecha}
+            onChange={(e) => setFecha(e.target.value)}
+            className="input-field min-h-[40px] max-w-[200px]"
+          />
+        </div>
       </div>
 
-      {loading ? (
-        <p className="text-sm text-slate-600">Cargando…</p>
-      ) : (
-        <form onSubmit={guardar} className="card-pro space-y-4 border border-slate-200 p-4">
-          <p className="text-xs font-semibold text-slate-800">
-            Monto físico en caja — {modo === 'APERTURA' ? 'apertura' : 'cierre'}
-          </p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {divisas.map((d) => (
-              <MoneyTextField
-                key={`${modo}-${d.codigo}`}
-                id={`m-${d.codigo}`}
-                label={`${d.codigo} — ${d.nombre_completo}`}
-                maxFrac={2}
-                value={montos[d.codigo] ?? ''}
-                onChange={(v) => setMonto(d.codigo, v)}
-                inputClassName="input-field input-numeric min-h-[52px] py-3 text-base font-semibold"
-              />
-            ))}
-          </div>
-          <button type="submit" disabled={guardando} className="btn-primary min-h-[44px] w-full text-sm">
-            {guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
-          </button>
-        </form>
-      )}
+      <section className="card-pro space-y-3 border border-slate-200 p-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-800">1. Apertura</h2>
+        <p className="text-[11px] text-slate-600">
+          Montos físicos al inicio del día. Si no hay apertura guardada, se sugiere el{' '}
+          <strong className="text-black">cierre físico del día anterior</strong> (auditoría). Guarde antes de operar.
+        </p>
+        {loading ? (
+          <p className="text-sm text-slate-600">Cargando…</p>
+        ) : (
+          <form onSubmit={guardarApertura} className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {divisas.map((d) => (
+                <MoneyTextField
+                  key={`ap-${d.codigo}`}
+                  id={`ap-${d.codigo}`}
+                  label={`${d.codigo} — ${d.nombre_completo}`}
+                  maxFrac={2}
+                  value={montosApertura[d.codigo] ?? ''}
+                  onChange={(v) => setMontosApertura((prev) => ({ ...prev, [d.codigo]: v }))}
+                  inputClassName="input-field input-numeric min-h-[44px] py-2 text-sm"
+                />
+              ))}
+            </div>
+            <button type="submit" disabled={guardandoApertura} className="btn-primary min-h-[42px] w-full text-sm sm:w-auto">
+              {guardandoApertura ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar apertura'}
+            </button>
+          </form>
+        )}
+      </section>
 
       <section className="card-pro overflow-hidden border border-slate-200">
-        <h2 className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-800">
-          Resumen comparativo
-        </h2>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[360px] border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-100">
-                <th className="table-header">Moneda</th>
-                <th className="table-header text-right">Apertura</th>
-                <th className="table-header text-right">Cierre</th>
-                <th className="table-header text-right">Diferencia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filasResumen.map((f) => (
-                <tr key={f.codigo} className="border-b border-slate-100">
-                  <td className="table-cell font-semibold">{f.codigo}</td>
-                  <td className="table-cell text-right font-mono">{f.a != null ? formatMilesEs(f.a, 2) : '—'}</td>
-                  <td className="table-cell text-right font-mono">{f.c != null ? formatMilesEs(f.c, 2) : '—'}</td>
-                  <td
-                    className={`table-cell text-right font-mono font-semibold ${
-                      f.diff == null ? 'text-slate-500' : f.diff >= 0 ? 'text-blue-700' : 'text-red-700'
-                    }`}
-                  >
-                    {f.diff != null ? formatMilesEs(f.diff, 2) : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="border-b border-slate-200 px-4 py-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-800">2. Cierre del día</h2>
+          <p className="mt-1 text-[11px] text-slate-600">
+            Cierre estimado = apertura + compras − ventas − «Nos deben» del día + «Debemos» del día (solo divisa
+            extranjera en deudas). Solo el <strong className="text-black">cierre manual</strong> es editable.
+          </p>
         </div>
-        <p className="border-t border-slate-100 px-3 py-2 text-[11px] text-slate-600">
-          Diferencia = cierre − apertura. Azul: sobrante o igual. Rojo: faltante.
-        </p>
+        {loading ? (
+          <p className="p-4 text-sm text-slate-600">Cargando…</p>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] border-collapse text-[11px]">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-100">
+                    <th className="table-header">Moneda</th>
+                    <th className="table-header text-right">Apertura</th>
+                    <th className="table-header text-right">+ Compras</th>
+                    <th className="table-header text-right">− Ventas</th>
+                    <th className="table-header text-right">− Nos deben (día)</th>
+                    <th className="table-header text-right">+ Debemos (día)</th>
+                    <th className="table-header text-right">Cierre est.</th>
+                    <th className="table-header text-left min-w-[120px]">Cierre manual</th>
+                    <th className="table-header text-right">Diferencia</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filasCierre.map((f) => {
+                    const manualStr = montosManualCierre[f.codigo] ?? ''
+                    const showDiff = f.diff != null && Math.abs(f.diff) > 1e-6
+                    return (
+                      <tr key={f.codigo} className="border-b border-slate-100">
+                        <td className="table-cell font-semibold">{f.codigo}</td>
+                        <td className="table-cell text-right font-mono">{formatMilesEs(f.ap, 2)}</td>
+                        <td className="table-cell text-right font-mono text-emerald-800">{formatMilesEs(f.comp, 4)}</td>
+                        <td className="table-cell text-right font-mono text-amber-900">{formatMilesEs(f.vent, 4)}</td>
+                        <td className="table-cell text-right font-mono">{formatMilesEs(f.db, 4)}</td>
+                        <td className="table-cell text-right font-mono">{formatMilesEs(f.dbo, 4)}</td>
+                        <td className="table-cell text-right font-mono font-semibold">{formatMilesEs(f.estimado, 4)}</td>
+                        <td className="table-cell py-1">
+                          <MoneyTextField
+                            id={`ci-${f.codigo}`}
+                            label={`Cierre manual ${f.codigo}`}
+                            omitLabel
+                            maxFrac={2}
+                            value={manualStr}
+                            onChange={(v) => setMontosManualCierre((prev) => ({ ...prev, [f.codigo]: v }))}
+                            className="min-w-[100px]"
+                            inputClassName="input-field input-numeric min-h-[36px] py-1 text-[11px]"
+                          />
+                        </td>
+                        <td
+                          className={`table-cell text-right font-mono font-semibold tabular-nums ${
+                            showDiff
+                              ? 'bg-red-100 text-red-700 ring-1 ring-inset ring-red-400'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {f.diff != null ? formatMilesEs(f.diff, 4) : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-slate-100 px-4 py-3">
+              <button
+                type="button"
+                disabled={finalizando}
+                onClick={() => void onFinalizarCierre()}
+                className="btn-primary min-h-[42px] w-full text-sm sm:w-auto"
+              >
+                {finalizando ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Finalizar cierre'}
+              </button>
+              <p className="mt-2 text-[10px] text-slate-500">
+                Diferencia = cierre manual − cierre estimado. Si no es cero, se muestra en rojo.
+              </p>
+            </div>
+          </>
+        )}
       </section>
     </div>
   )

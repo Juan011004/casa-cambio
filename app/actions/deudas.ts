@@ -48,6 +48,8 @@ export async function registrarDeuda(raw: unknown): Promise<ActionResult<{ id: s
     revalidatePath('/dashboard')
     revalidatePath('/nos-deben')
     revalidatePath('/debemos')
+    revalidatePath('/inventory')
+    revalidatePath('/caja')
     return { ok: true, data: { id: row.id } }
   } catch (e) {
     logServerError('registrarDeuda', e)

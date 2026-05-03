@@ -8,14 +8,13 @@ export function totalCopFromTasa(cantidad: number, tasaCopPorUnidad: number): nu
   return c * t
 }
 
-/** Existencias en “cara” de la divisa: suma (unidades × denominación) por todas las filas. */
+/** Existencias consolidadas por divisa (cantidad_actual). */
 export function stockCaraDivisa(rows: InventarioItem[], divisa: string): number {
   let sum = 0
   for (const row of rows) {
     if (row.divisa === divisa) {
-      const den = Number(row.denominacion)
-      const units = Number(row.cantidad)
-      if (Number.isFinite(den) && Number.isFinite(units)) sum += den * units
+      const q = Number(row.cantidad_actual)
+      if (Number.isFinite(q)) sum += q
     }
   }
   return sum

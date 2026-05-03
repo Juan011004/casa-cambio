@@ -13,6 +13,8 @@ type Props = {
   maxFrac?: number
   className?: string
   inputClassName?: string
+  /** Si true, no muestra etiqueta (usa aria-label con `label`). */
+  omitLabel?: boolean
 }
 
 export function MoneyTextField({
@@ -24,14 +26,18 @@ export function MoneyTextField({
   maxFrac = 2,
   className,
   inputClassName = 'input-field input-numeric min-h-[42px] py-2 text-base',
+  omitLabel,
 }: Props) {
   return (
     <div className={className}>
-      <label className="label" htmlFor={id}>
-        {label}
-      </label>
+      {omitLabel ? null : (
+        <label className="label" htmlFor={id}>
+          {label}
+        </label>
+      )}
       <NumericFormat
         id={id}
+        aria-label={omitLabel ? label : undefined}
         thousandSeparator="."
         decimalSeparator=","
         allowedDecimalSeparators={[',', '.']}

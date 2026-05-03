@@ -148,26 +148,73 @@ export interface Database {
         }
         Relationships: []
       }
+      cierres_diarios: {
+        Row: {
+          id: string
+          usuario_id: string
+          fecha: string
+          moneda: string
+          monto_inicial: number
+          promedio_inicial: number
+          total_compra_monto: number
+          promedio_compra_dia: number
+          total_venta_monto: number
+          promedio_venta_dia: number
+          cierre_estimado_sistema: number
+          cierre_manual_fisico: number
+          diferencia_arqueo: number
+          ganancia_neta_cop: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          usuario_id: string
+          fecha: string
+          moneda: string
+          monto_inicial?: number
+          promedio_inicial?: number
+          total_compra_monto?: number
+          promedio_compra_dia?: number
+          total_venta_monto?: number
+          promedio_venta_dia?: number
+          cierre_estimado_sistema?: number
+          cierre_manual_fisico?: number
+          diferencia_arqueo?: number
+          ganancia_neta_cop?: number
+          created_at?: string
+        }
+        Update: {
+          monto_inicial?: number
+          promedio_inicial?: number
+          total_compra_monto?: number
+          promedio_compra_dia?: number
+          total_venta_monto?: number
+          promedio_venta_dia?: number
+          cierre_estimado_sistema?: number
+          cierre_manual_fisico?: number
+          diferencia_arqueo?: number
+          ganancia_neta_cop?: number
+        }
+        Relationships: []
+      }
       inventario: {
         Row: {
           id: string
           usuario_id: string
           divisa: string
-          denominacion: number
-          cantidad: number
-          updated_at: string
+          cantidad_actual: number
+          ultima_actualizacion: string
         }
         Insert: {
           id?: string
           usuario_id: string
           divisa: string
-          denominacion: number
-          cantidad: number
-          updated_at?: string
+          cantidad_actual?: number
+          ultima_actualizacion?: string
         }
         Update: {
-          cantidad?: number
-          updated_at?: string
+          cantidad_actual?: number
+          ultima_actualizacion?: string
         }
         Relationships: []
       }
@@ -239,3 +286,4 @@ export type Usuario = Database['public']['Tables']['usuarios']['Row']
 export type GastoRow = Database['public']['Tables']['gastos']['Row']
 export type DeudaRow = Database['public']['Tables']['deudas']['Row']
 export type CajaDiariaRow = Database['public']['Tables']['caja_diaria']['Row']
+export type CierreDiarioRow = Database['public']['Tables']['cierres_diarios']['Row']

@@ -82,6 +82,7 @@ export async function registrarCompra(
     revalidatePath('/historial')
     revalidatePath('/gastos')
     revalidatePath('/caja')
+    revalidatePath('/inventory')
     return { ok: true, data: { total_cop, tasa: tasaEfectiva } }
   } catch (e) {
     logServerError('registrarCompra', e)
