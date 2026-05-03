@@ -1,0 +1,236 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
+import { Check, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { registrarDeuda, saldarDeuda } from '@/app/actions/deudas'
+import { errorMessage } from '@/lib/errorMessage'
+import type { EstadoDeuda, RegistroDeuda } from '@/types/database'
+import { formatMoneyDivisa, formatMilesEs } from '@/lib/utils'
+import { MoneyTextField } from '@/components/forms/MoneyTextField'
+import { parseFlexibleNumber } from '@/lib/parseMoney'
+import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
+import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
+
+type Props = {
+  tipo: 'DEBEN' | 'DEBO'
+  titulo: string
+  etiquetaPersona: string
+}
+
+export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
+  const supabase = useMemo(() => createBrowserSupabaseClient(), [])
+  const { rows: divisasRows } = useDivisasMaestro()
+  const opciones = useMemo(() => (divisasRows.length ? divisasRows : DIVISAS_FALLBACK), [divisasRows])
+
+  const [responsable, setResponsable] = useState('')
+  const [divisa, setDivisa] = useState('USD')
+  const [monto, setMonto] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [lista, setLista] = useState<RegistroDeuda[]>([])
+  const [cargandoLista, setCargandoLista] = useState(true)
+  const [saldandoId, setSaldandoId] = useState<string | null>(null)
+
+  const cargar = useCallback(async () => {
+    setCargandoLista(true)
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) {
+      setLista([])
+      setCargandoLista(false)
+      return
+    }
+    const { data } = await supabase
+      .from('deudas')
+      .select('id,responsable,divisa,monto,fecha,estado')
+      .eq('usuario_id', user.id)
+      .eq('tipo', tipo)
+      .eq('estado', 'PENDIENTE')
+      .order('fecha', { ascending: false })
+      .limit(100)
+    setLista(
+      (data ?? []).map((r) => {
+        const row = r as Record<string, unknown>
+        return {
+          id: String(row.id),
+          responsable: String(row.responsable),
+          divisa: String(row.divisa),
+          monto: Number(row.monto),
+          fecha: String(row.fecha),
+          estado: (String(row.estado ?? 'PENDIENTE') as EstadoDeuda) || 'PENDIENTE',
+        }
+      })
+    )
+    setCargandoLista(false)
+  }, [supabase, tipo])
+
+  useEffect(() => {
+    void cargar()
+  }, [cargar])
+
+  const totalesPorDivisa = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const row of lista) {
+      m.set(row.divisa, (m.get(row.divisa) ?? 0) + row.monto)
+    }
+    return m
+  }, [lista])
+
+  const guardar = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      const parsedMonto = parseFlexibleNumber(monto)
+      if (!Number.isFinite(parsedMonto) || parsedMonto <= 0) {
+        toast.error('Indique un monto válido.')
+        return
+      }
+      const res = await registrarDeuda({
+        tipo,
+        responsable,
+        divisa,
+        monto: parsedMonto,
+      })
+      if (!res.ok) {
+        toast.error('No se guardó', { description: res.error })
+        return
+      }
+      toast.success('Guardado')
+      setResponsable('')
+      setMonto('')
+      await cargar()
+    } catch (err: unknown) {
+      toast.error(errorMessage(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const saldar = async (id: string) => {
+    setSaldandoId(id)
+    try {
+      const res = await saldarDeuda({ id: id })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success('Marcado como saldado')
+      await cargar()
+    } catch (err: unknown) {
+      toast.error(errorMessage(err))
+    } finally {
+      setSaldandoId(null)
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-4 text-sm text-black">
+      <h1 className="text-sm font-semibold tracking-tight">{titulo}</h1>
+
+      <form onSubmit={guardar} noValidate className="card-pro space-y-2 p-3">
+        <div>
+          <label className="label" htmlFor="resp">
+            {etiquetaPersona}
+          </label>
+          <input
+            id="resp"
+            className="input-field min-h-[36px] py-1.5"
+            value={responsable}
+            onChange={(e) => setResponsable(e.target.value)}
+            required
+            autoComplete="off"
+          />
+        </div>
+        <div>
+          <label className="label" htmlFor="div">
+            Divisa
+          </label>
+          <select id="div" className="input-field min-h-[36px] py-1.5" value={divisa} onChange={(e) => setDivisa(e.target.value)}>
+            {opciones.map((d) => (
+              <option key={d.codigo} value={d.codigo}>
+                {d.codigo} — {d.nombre_completo}
+              </option>
+            ))}
+          </select>
+        </div>
+        <MoneyTextField
+          id="monto"
+          label="Monto"
+          maxFrac={2}
+          value={monto}
+          onChange={setMonto}
+          inputClassName="input-field input-numeric min-h-[40px]"
+        />
+        <button type="submit" disabled={loading} className="btn-primary min-h-[40px] w-full text-sm">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
+        </button>
+      </form>
+
+      <section className="card-pro overflow-hidden p-0">
+        <h2 className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-black">Pendientes · saldar</h2>
+        {cargandoLista ? (
+          <p className="p-3 text-xs text-slate-600">Cargando…</p>
+        ) : lista.length === 0 ? (
+          <p className="p-3 text-xs text-slate-600">Sin registros pendientes.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50">
+                  <th className="table-header max-w-[140px] text-left">{etiquetaPersona}</th>
+                  <th className="table-header text-left">Divisa</th>
+                  <th className="table-header text-right">Monto</th>
+                  <th className="table-header text-left">Fecha</th>
+                  <th className="table-header w-24">Saldar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lista.map((r) => (
+                  <tr key={r.id} className="border-b border-slate-100">
+                    <td className="table-cell font-medium">{r.responsable}</td>
+                    <td className="table-cell">{r.divisa}</td>
+                    <td className="table-cell text-right font-mono">{formatMoneyDivisa(r.monto, r.divisa)}</td>
+                    <td className="table-cell text-slate-600">
+                      {new Date(r.fecha).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}
+                    </td>
+                    <td className="table-cell">
+                      <button
+                        type="button"
+                        title="Saldar"
+                        disabled={saldandoId === r.id}
+                        onClick={() => void saldar(r.id)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {saldandoId === r.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Check className="h-4 w-4" strokeWidth={2.5} />
+                        )}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!cargandoLista && lista.length > 0 ? (
+          <div className="border-t border-slate-100 bg-slate-50 px-3 py-2">
+            <p className="text-xs font-semibold text-slate-800">Resumen por divisa</p>
+            <ul className="mt-1 space-y-0.5 text-xs text-slate-700">
+              {Array.from(totalesPorDivisa.entries()).map(([d, sum]) => (
+                <li key={d} className="flex justify-between gap-2">
+                  <span>{d}</span>
+                  <span className="font-mono font-medium">{formatMilesEs(sum, 2)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </section>
+    </div>
+  )
+}

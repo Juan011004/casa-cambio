@@ -1,0 +1,197 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
+import { Loader2, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { formatCOP, isoTimestampForPostgrestFilter } from '@/lib/utils'
+import { eliminarGasto, registrarGasto } from '@/app/actions/gastos'
+import { errorMessage } from '@/lib/errorMessage'
+import { MoneyTextField } from '@/components/forms/MoneyTextField'
+import { parseFlexibleNumber } from '@/lib/parseMoney'
+
+type GastoRow = {
+  id: string
+  concepto: string
+  monto_cop: number
+  fecha: string
+}
+
+export default function GastosPage() {
+  const supabase = useMemo(() => createBrowserSupabaseClient(), [])
+  const [concepto, setConcepto] = useState('')
+  const [monto, setMonto] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [rows, setRows] = useState<GastoRow[]>([])
+  const [listLoading, setListLoading] = useState(true)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const cargar = useCallback(async () => {
+    setListLoading(true)
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) {
+      setRows([])
+      setListLoading(false)
+      return
+    }
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const desde = isoTimestampForPostgrestFilter(today)
+
+    const { data, error } = await supabase
+      .from('gastos')
+      .select('id,concepto,monto_cop,fecha')
+      .eq('usuario_id', user.id)
+      .gte('fecha', desde)
+      .order('fecha', { ascending: false })
+
+    if (error) {
+      toast.error('No se pudieron cargar los gastos', { description: error.message })
+      setRows([])
+    } else {
+      setRows(
+        (data ?? []).map((r) => ({
+          id: String((r as Record<string, unknown>).id),
+          concepto: String((r as Record<string, unknown>).concepto),
+          monto_cop: Number((r as Record<string, unknown>).monto_cop),
+          fecha: String((r as Record<string, unknown>).fecha),
+        }))
+      )
+    }
+    setListLoading(false)
+  }, [supabase])
+
+  useEffect(() => {
+    void cargar()
+  }, [cargar])
+
+  const guardar = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const m = parseFlexibleNumber(monto)
+    if (!concepto.trim()) {
+      toast.error('Escriba el concepto.')
+      return
+    }
+    if (!Number.isFinite(m) || m <= 0) {
+      toast.error('Indique un monto válido.')
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await registrarGasto({ concepto: concepto.trim(), monto_cop: m })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success('Gasto guardado')
+      setConcepto('')
+      setMonto('')
+      await cargar()
+    } catch (e: unknown) {
+      toast.error(errorMessage(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const borrar = async (id: string) => {
+    setDeletingId(id)
+    try {
+      const res = await eliminarGasto({ id })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success('Eliminado')
+      await cargar()
+    } catch (e: unknown) {
+      toast.error(errorMessage(e))
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-5 text-sm text-black">
+      <h1 className="text-base font-semibold">Gastos</h1>
+
+      <form onSubmit={guardar} noValidate className="card-pro flex flex-col gap-3 border border-slate-200 p-3 sm:flex-row sm:flex-wrap sm:items-end">
+        <div className="min-w-0 flex-1">
+          <label className="label" htmlFor="g-concepto">
+            Concepto
+          </label>
+          <input
+            id="g-concepto"
+            className="input-field min-h-[40px]"
+            value={concepto}
+            onChange={(e) => setConcepto(e.target.value)}
+            autoComplete="off"
+          />
+        </div>
+        <MoneyTextField
+          id="g-monto"
+          label="Monto COP"
+          maxFrac={2}
+          className="w-full sm:w-40"
+          value={monto}
+          onChange={setMonto}
+        />
+        <button type="submit" disabled={loading} className="btn-primary min-h-[40px] w-full shrink-0 px-6 sm:w-auto">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
+        </button>
+      </form>
+
+      <section className="card-pro overflow-hidden border border-slate-200">
+        <h2 className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-800">
+          Gastos del día
+        </h2>
+        {listLoading ? (
+          <p className="p-4 text-sm text-slate-700">Cargando…</p>
+        ) : rows.length === 0 ? (
+          <p className="p-4 text-sm text-slate-700">Sin gastos hoy.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-100">
+                  <th className="table-header">Fecha</th>
+                  <th className="table-header">Concepto</th>
+                  <th className="table-header text-right">Monto</th>
+                  <th className="table-header w-16 text-center"> </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} className="border-b border-slate-100">
+                    <td className="table-cell text-slate-800">
+                      {new Date(r.fecha).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}
+                    </td>
+                    <td className="table-cell font-medium">{r.concepto}</td>
+                    <td className="table-cell text-right font-mono font-semibold">{formatCOP(r.monto_cop)}</td>
+                    <td className="table-cell text-center">
+                      <button
+                        type="button"
+                        title="Eliminar"
+                        disabled={deletingId === r.id}
+                        onClick={() => void borrar(r.id)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-700 bg-white text-red-800 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {deletingId === r.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}

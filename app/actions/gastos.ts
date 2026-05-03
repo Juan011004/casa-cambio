@@ -1,0 +1,80 @@
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { cookies } from 'next/headers'
+import { createServerActionClient } from '@supabase/auth-helpers-nextjs'
+import { z } from 'zod'
+import type { ActionResult } from '@/types/database'
+import { gastoInsertSchema, uuidSchema } from '@/lib/validation/schemas'
+import { logServerError } from '@/lib/server/server-log'
+
+const eliminarGastoSchema = z.object({ id: uuidSchema })
+
+export async function registrarGasto(raw: unknown): Promise<ActionResult<{ id: string }>> {
+  const parsed = gastoInsertSchema.safeParse(raw)
+  if (!parsed.success) {
+    const first = Object.values(parsed.error.flatten().fieldErrors).flat()[0] ?? 'Datos inválidos.'
+    return { ok: false, error: first }
+  }
+
+  try {
+    const supabase = createServerActionClient({ cookies })
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser()
+    if (userErr || !user) return { ok: false, error: 'Sesión no válida.', code: 'AUTH' }
+
+    const { data, error } = await supabase
+      .from('gastos')
+      .insert({
+        usuario_id: user.id,
+        concepto: parsed.data.concepto,
+        monto_cop: parsed.data.monto_cop,
+      })
+      .select('id')
+      .single()
+
+    if (error) {
+      logServerError('registrarGasto', new Error(error.message))
+      return { ok: false, error: 'No se pudo guardar el gasto.' }
+    }
+    const row = data as { id: string } | null
+    if (!row?.id) return { ok: false, error: 'No se guardó.' }
+
+    revalidatePath('/gastos')
+    revalidatePath('/dashboard')
+    return { ok: true, data: { id: row.id } }
+  } catch (e) {
+    logServerError('registrarGasto', e)
+    return { ok: false, error: 'Error inesperado.' }
+  }
+}
+
+export async function eliminarGasto(raw: unknown): Promise<ActionResult> {
+  const parsed = eliminarGastoSchema.safeParse(raw)
+  if (!parsed.success) return { ok: false, error: 'Identificador inválido.' }
+
+  try {
+    const supabase = createServerActionClient({ cookies })
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser()
+    if (userErr || !user) return { ok: false, error: 'Sesión no válida.', code: 'AUTH' }
+
+    const { error } = await supabase.from('gastos').delete().eq('id', parsed.data.id).eq('usuario_id', user.id)
+
+    if (error) {
+      logServerError('eliminarGasto', new Error(error.message))
+      return { ok: false, error: 'No se pudo eliminar.' }
+    }
+
+    revalidatePath('/gastos')
+    revalidatePath('/dashboard')
+    return { ok: true }
+  } catch (e) {
+    logServerError('eliminarGasto', e)
+    return { ok: false, error: 'Error inesperado.' }
+  }
+}

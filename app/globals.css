@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --sidebar-width: 260px;
+  }
+}
+
+@layer components {
+  .card-pro {
+    @apply rounded-md border border-slate-100 bg-white shadow-sm;
+  }
+
+  .card {
+    @apply card-pro;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-slate-100 bg-white px-5 py-3 text-sm font-medium text-black shadow-sm hover:bg-slate-50;
+  }
+
+  .input-field {
+    @apply w-full rounded-md border border-slate-100 bg-white px-2.5 py-1.5 text-sm text-black shadow-sm placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-300;
+  }
+
+  .input-numeric {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+
+  .input-numeric::-webkit-outer-spin-button,
+  .input-numeric::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .label {
+    @apply mb-1 block text-sm font-medium text-black;
+  }
+
+  .table-header {
+    @apply border-b border-slate-100 bg-slate-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-700;
+  }
+
+  .table-cell {
+    @apply border-b border-slate-100 px-3 py-2 text-sm text-black;
+  }
+
+  .table-row-striped:nth-child(even) {
+    @apply bg-slate-50/80;
+  }
+
+  .btn-guardar-precios {
+    @apply mt-6 flex min-h-[52px] w-full max-w-xl items-center justify-center rounded-md bg-blue-600 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50;
+  }
+}
