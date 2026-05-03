@@ -49,8 +49,9 @@ function pickUltimaActualizacion(rows: { ultima_actualizacion: string }[]): stri
 }
 
 /**
- * Lee TRM desde Supabase. Si la caché tiene más de 60 min (y hay service role),
- * sincroniza desde exchangerate-api antes de devolver.
+ * Lee TRM desde Supabase. Refresco perezoso: si la caché tiene > 60 min o está vacía
+ * (y existe SUPABASE_SERVICE_ROLE_KEY en el servidor), sincroniza desde la API antes de devolver.
+ * Así el Dashboard mantiene datos al día sin depender de cron en Vercel Hobby.
  */
 export async function obtenerTrmMercado(): Promise<{
   ok: true
