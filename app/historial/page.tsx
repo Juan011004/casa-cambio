@@ -115,7 +115,6 @@ export default function HistorialPage() {
         'Monto divisa': tx.monto_divisa,
         'Tasa COP/1': tx.tasa_aplicada,
         'Total COP': tx.total_cop,
-        'Ganancia COP': tx.tipo === 'VENTA' ? Number(tx.ganancia_cop ?? 0) : '',
         Pago: tx.metodo_pago ?? 'Efectivo',
       }))
       const ws = XLSX.utils.json_to_sheet(exportRows)

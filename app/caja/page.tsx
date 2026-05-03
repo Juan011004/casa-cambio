@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
@@ -23,15 +23,8 @@ function sumTxByMoneda(rows: Transaccion[], tipo: 'COMPRA' | 'VENTA'): Record<st
   return m
 }
 
-function sumDeudaRows(rows: { tipo: string; divisa: string; monto: number }[], tipo: 'DEBEN' | 'DEBO'): Record<string, number> {
-  const m: Record<string, number> = {}
-  for (const r of rows) {
-    if (r.tipo !== tipo) continue
-    if (r.divisa === 'COP') continue
-    m[r.divisa] = (m[r.divisa] ?? 0) + Number(r.monto)
-  }
-  return m
-}
+const cellInput =
+  'w-full min-w-[72px] border-0 border-b border-slate-200 bg-transparent py-1.5 px-1 font-mono text-[11px] shadow-none focus:border-blue-600 focus:outline-none focus:ring-0'
 
 export default function CajaPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), [])
@@ -45,12 +38,30 @@ export default function CajaPage() {
   const [montosManualCierre, setMontosManualCierre] = useState<Record<string, string>>({})
   const [comprasDia, setComprasDia] = useState<Record<string, number>>({})
   const [ventasDia, setVentasDia] = useState<Record<string, number>>({})
-  const [debenDia, setDebenDia] = useState<Record<string, number>>({})
-  const [deboDia, setDeboDia] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [guardandoApertura, setGuardandoApertura] = useState(false)
   const [finalizando, setFinalizando] = useState(false)
   const [cierreAyerPorMoneda, setCierreAyerPorMoneda] = useState<Record<string, number>>({})
+  const saveApTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const persistAperturaDebounced = useCallback(
+    (snapshot: Record<string, string>) => {
+      if (saveApTimer.current) clearTimeout(saveApTimer.current)
+      saveApTimer.current = setTimeout(() => {
+        saveApTimer.current = null
+        void (async () => {
+          const out: Record<string, number> = {}
+          for (const d of divisas) {
+            const raw = snapshot[d.codigo] ?? ''
+            const n = parseFlexibleNumber(raw)
+            if (raw.trim() !== '' && Number.isFinite(n)) out[d.codigo] = n
+          }
+          const res = await guardarCajaDiaria({ fecha, tipo: 'APERTURA', montos: out })
+          if (!res.ok) toast.error(res.error)
+        })()
+      }, 700)
+    },
+    [fecha, divisas]
+  )
 
   const cargar = useCallback(async () => {
     setLoading(true)
@@ -62,8 +73,6 @@ export default function CajaPage() {
       setCierreMap({})
       setComprasDia({})
       setVentasDia({})
-      setDebenDia({})
-      setDeboDia({})
       setLoading(false)
       return
     }
@@ -71,7 +80,7 @@ export default function CajaPage() {
     const { desde, hastaExclusive } = dayBoundsLocal(fecha)
     const fechaAyer = addDaysYYYYMMDD(fecha, -1)
 
-    const [cajaRes, txRes, deudaRes, cierresAyerRes] = await Promise.all([
+    const [cajaRes, txRes, cierresAyerRes] = await Promise.all([
       supabase.from('caja_diaria').select('tipo,moneda,monto').eq('usuario_id', user.id).eq('fecha', fecha),
       supabase
         .from('transacciones')
@@ -80,14 +89,8 @@ export default function CajaPage() {
         .gte('fecha', desde)
         .lt('fecha', hastaExclusive),
       supabase
-        .from('deudas')
-        .select('tipo,divisa,monto')
-        .eq('usuario_id', user.id)
-        .gte('fecha', desde)
-        .lt('fecha', hastaExclusive),
-      supabase
         .from('cierres_diarios')
-        .select('moneda,cierre_manual_fisico')
+        .select('moneda,cierre_manual')
         .eq('usuario_id', user.id)
         .eq('fecha', fechaAyer),
     ])
@@ -106,15 +109,11 @@ export default function CajaPage() {
     setComprasDia(sumTxByMoneda(txs, 'COMPRA'))
     setVentasDia(sumTxByMoneda(txs, 'VENTA'))
 
-    const debtRows = (deudaRes.data ?? []) as { tipo: string; divisa: string; monto: number }[]
-    setDebenDia(sumDeudaRows(debtRows, 'DEBEN'))
-    setDeboDia(sumDeudaRows(debtRows, 'DEBO'))
-
     const ayer: Record<string, number> = {}
     if (!cierresAyerRes.error) {
       for (const r of cierresAyerRes.data ?? []) {
-        const row = r as { moneda: string; cierre_manual_fisico: number }
-        ayer[row.moneda] = Number(row.cierre_manual_fisico)
+        const row = r as { moneda: string; cierre_manual: number }
+        ayer[row.moneda] = Number(row.cierre_manual)
       }
     }
     setCierreAyerPorMoneda(ayer)
@@ -149,76 +148,57 @@ export default function CajaPage() {
     setMontosManualCierre(nextM)
   }, [cierreMap, divisas])
 
-  const codigosCierre = useMemo(() => {
+  const codigos = useMemo(() => {
     const s = new Set<string>()
     for (const d of divisas) s.add(d.codigo)
     for (const k of Object.keys(aperturaMap)) s.add(k)
     for (const k of Object.keys(comprasDia)) s.add(k)
     for (const k of Object.keys(ventasDia)) s.add(k)
-    for (const k of Object.keys(debenDia)) s.add(k)
-    for (const k of Object.keys(deboDia)) s.add(k)
     return Array.from(s).sort((a, b) => a.localeCompare(b))
-  }, [divisas, aperturaMap, comprasDia, ventasDia, debenDia, deboDia])
+  }, [divisas, aperturaMap, comprasDia, ventasDia])
 
-  const filasCierre = useMemo(() => {
-    return codigosCierre.map((codigo) => {
-      const ap = aperturaMap[codigo] ?? 0
+  const filas = useMemo(() => {
+    return codigos.map((codigo) => {
+      const rawAp = montosApertura[codigo] ?? ''
+      const parsedAp = parseFlexibleNumber(rawAp)
+      const ap = rawAp.trim() !== '' && Number.isFinite(parsedAp) ? parsedAp : (aperturaMap[codigo] ?? 0)
       const comp = comprasDia[codigo] ?? 0
       const vent = ventasDia[codigo] ?? 0
-      const db = debenDia[codigo] ?? 0
-      const dbo = deboDia[codigo] ?? 0
-      const estimado = ap + comp - vent - db + dbo
+      const estimado = ap + comp - vent
       const manualStr = montosManualCierre[codigo] ?? ''
       const manualNum = parseFlexibleNumber(manualStr)
       const manualOk = manualStr.trim() !== '' && Number.isFinite(manualNum)
-      const diff = manualOk ? manualNum - estimado : null
-      return { codigo, ap, comp, vent, db, dbo, estimado, manualStr, diff }
+      const diff = manualOk ? estimado - manualNum : null
+      return { codigo, estimado, manualStr, diff }
     })
-  }, [codigosCierre, aperturaMap, comprasDia, ventasDia, debenDia, deboDia, montosManualCierre])
-
-  const guardarApertura = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setGuardandoApertura(true)
-    try {
-      const out: Record<string, number> = {}
-      for (const d of divisas) {
-        const raw = montosApertura[d.codigo] ?? ''
-        const n = parseFlexibleNumber(raw)
-        if (raw.trim() !== '' && Number.isFinite(n)) out[d.codigo] = n
-      }
-      const res = await guardarCajaDiaria({ fecha, tipo: 'APERTURA', montos: out })
-      if (!res.ok) {
-        toast.error(res.error)
-        return
-      }
-      toast.success('Apertura guardada')
-      await cargar()
-    } catch (e: unknown) {
-      toast.error(errorMessage(e))
-    } finally {
-      setGuardandoApertura(false)
-    }
-  }
+  }, [codigos, montosApertura, aperturaMap, comprasDia, ventasDia, montosManualCierre])
 
   const onFinalizarCierre = async () => {
     setFinalizando(true)
     try {
       const manualCierre: Record<string, number> = {}
-      for (const row of filasCierre) {
-        const raw = montosManualCierre[row.codigo] ?? ''
-        const n = parseFlexibleNumber(raw)
-        if (raw.trim() !== '' && Number.isFinite(n)) manualCierre[row.codigo] = n
+      for (const row of filas) {
+        const rawM = montosManualCierre[row.codigo] ?? ''
+        const nM = parseFlexibleNumber(rawM)
+        if (rawM.trim() !== '' && Number.isFinite(nM)) manualCierre[row.codigo] = nM
+      }
+      const aperturas: Record<string, number> = {}
+      for (const codigo of Object.keys(manualCierre)) {
+        const rawA = montosApertura[codigo] ?? ''
+        const nA = parseFlexibleNumber(rawA)
+        if (rawA.trim() !== '' && Number.isFinite(nA)) aperturas[codigo] = nA
+        else aperturas[codigo] = aperturaMap[codigo] ?? 0
       }
       if (Object.keys(manualCierre).length === 0) {
-        toast.error('Indique al menos un cierre manual contado.')
+        toast.error('Indique al menos un cierre manual.')
         return
       }
-      const res = await finalizarCierreCaja({ fecha, manualCierre })
+      const res = await finalizarCierreCaja({ fecha, manualCierre, aperturas })
       if (!res.ok) {
         toast.error(res.error)
         return
       }
-      toast.success('Cierre finalizado e inventario actualizado')
+      toast.success('Cierre guardado')
       await cargar()
     } catch (e: unknown) {
       toast.error(errorMessage(e))
@@ -228,137 +208,98 @@ export default function CajaPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 text-[13px] text-black">
-      <h1 className="text-base font-semibold">Caja diaria</h1>
-
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <label className="label text-[11px]" htmlFor="fecha-caja">
-            Fecha (día operativo)
-          </label>
-          <input
-            id="fecha-caja"
-            type="date"
-            value={fecha}
-            onChange={(e) => setFecha(e.target.value)}
-            className="input-field min-h-[40px] max-w-[200px]"
-          />
-        </div>
+    <div className="mx-auto max-w-5xl space-y-3 text-[13px] text-black">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <h1 className="text-base font-semibold">Caja</h1>
+        <input
+          type="date"
+          value={fecha}
+          onChange={(e) => setFecha(e.target.value)}
+          className="input-field min-h-[36px] max-w-[180px]"
+        />
       </div>
 
-      <section className="card-pro space-y-3 border border-slate-200 p-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-800">1. Apertura</h2>
-        <p className="text-[11px] text-slate-600">
-          Montos físicos al inicio del día. Si no hay apertura guardada, se sugiere el{' '}
-          <strong className="text-black">cierre físico del día anterior</strong> (auditoría). Guarde antes de operar.
-        </p>
+      <div className="overflow-hidden rounded border border-slate-300 bg-white">
         {loading ? (
-          <p className="text-sm text-slate-600">Cargando…</p>
-        ) : (
-          <form onSubmit={guardarApertura} className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              {divisas.map((d) => (
-                <MoneyTextField
-                  key={`ap-${d.codigo}`}
-                  id={`ap-${d.codigo}`}
-                  label={`${d.codigo} — ${d.nombre_completo}`}
-                  maxFrac={2}
-                  value={montosApertura[d.codigo] ?? ''}
-                  onChange={(v) => setMontosApertura((prev) => ({ ...prev, [d.codigo]: v }))}
-                  inputClassName="input-field input-numeric min-h-[44px] py-2 text-sm"
-                />
-              ))}
-            </div>
-            <button type="submit" disabled={guardandoApertura} className="btn-primary min-h-[42px] w-full text-sm sm:w-auto">
-              {guardandoApertura ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar apertura'}
-            </button>
-          </form>
-        )}
-      </section>
-
-      <section className="card-pro overflow-hidden border border-slate-200">
-        <div className="border-b border-slate-200 px-4 py-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-800">2. Cierre del día</h2>
-          <p className="mt-1 text-[11px] text-slate-600">
-            Cierre estimado = apertura + compras − ventas − «Nos deben» del día + «Debemos» del día (solo divisa
-            extranjera en deudas). Solo el <strong className="text-black">cierre manual</strong> es editable.
-          </p>
-        </div>
-        {loading ? (
-          <p className="p-4 text-sm text-slate-600">Cargando…</p>
+          <p className="p-4 text-sm text-slate-500">…</p>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] border-collapse text-[11px]">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-100">
-                    <th className="table-header">Moneda</th>
-                    <th className="table-header text-right">Apertura</th>
-                    <th className="table-header text-right">+ Compras</th>
-                    <th className="table-header text-right">− Ventas</th>
-                    <th className="table-header text-right">− Nos deben (día)</th>
-                    <th className="table-header text-right">+ Debemos (día)</th>
-                    <th className="table-header text-right">Cierre est.</th>
-                    <th className="table-header text-left min-w-[120px]">Cierre manual</th>
-                    <th className="table-header text-right">Diferencia</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filasCierre.map((f) => {
-                    const manualStr = montosManualCierre[f.codigo] ?? ''
-                    const showDiff = f.diff != null && Math.abs(f.diff) > 1e-6
-                    return (
-                      <tr key={f.codigo} className="border-b border-slate-100">
-                        <td className="table-cell font-semibold">{f.codigo}</td>
-                        <td className="table-cell text-right font-mono">{formatMilesEs(f.ap, 2)}</td>
-                        <td className="table-cell text-right font-mono text-emerald-800">{formatMilesEs(f.comp, 4)}</td>
-                        <td className="table-cell text-right font-mono text-amber-900">{formatMilesEs(f.vent, 4)}</td>
-                        <td className="table-cell text-right font-mono">{formatMilesEs(f.db, 4)}</td>
-                        <td className="table-cell text-right font-mono">{formatMilesEs(f.dbo, 4)}</td>
-                        <td className="table-cell text-right font-mono font-semibold">{formatMilesEs(f.estimado, 4)}</td>
-                        <td className="table-cell py-1">
-                          <MoneyTextField
-                            id={`ci-${f.codigo}`}
-                            label={`Cierre manual ${f.codigo}`}
-                            omitLabel
-                            maxFrac={2}
-                            value={manualStr}
-                            onChange={(v) => setMontosManualCierre((prev) => ({ ...prev, [f.codigo]: v }))}
-                            className="min-w-[100px]"
-                            inputClassName="input-field input-numeric min-h-[36px] py-1 text-[11px]"
-                          />
-                        </td>
-                        <td
-                          className={`table-cell text-right font-mono font-semibold tabular-nums ${
-                            showDiff
-                              ? 'bg-red-100 text-red-700 ring-1 ring-inset ring-red-400'
-                              : 'text-slate-500'
-                          }`}
-                        >
-                          {f.diff != null ? formatMilesEs(f.diff, 4) : '—'}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="border-t border-slate-100 px-4 py-3">
+            <table className="w-full min-w-[560px] border-collapse text-[11px]">
+              <thead>
+                <tr className="border-b border-slate-300 bg-slate-100">
+                  <th className="border-r border-slate-200 px-2 py-1.5 text-left font-semibold text-slate-800">Moneda</th>
+                  <th className="border-r border-slate-200 px-2 py-1.5 text-right font-semibold text-slate-800">Apertura</th>
+                  <th className="border-r border-slate-200 px-2 py-1.5 text-right font-semibold text-slate-800">
+                    Cierre est.
+                  </th>
+                  <th className="border-r border-slate-200 px-2 py-1.5 text-right font-semibold text-slate-800">
+                    Cierre manual
+                  </th>
+                  <th className="px-2 py-1.5 text-right font-semibold text-slate-800">Diferencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filas.map((f) => {
+                  const showDiff = f.diff != null && Math.abs(f.diff) > 1e-6
+                  return (
+                    <tr key={f.codigo} className="border-b border-slate-200">
+                      <td className="border-r border-slate-100 px-2 py-1 font-semibold">{f.codigo}</td>
+                      <td className="border-r border-slate-100 px-1 py-0.5 align-middle">
+                        <MoneyTextField
+                          id={`ap-${f.codigo}`}
+                          label={`Apertura ${f.codigo}`}
+                          omitLabel
+                          maxFrac={2}
+                          value={montosApertura[f.codigo] ?? ''}
+                          onChange={(v) => {
+                            setMontosApertura((prev) => {
+                              const next = { ...prev, [f.codigo]: v }
+                              persistAperturaDebounced(next)
+                              return next
+                            })
+                          }}
+                          inputClassName={cellInput}
+                        />
+                      </td>
+                      <td className="border-r border-slate-100 px-2 py-1 text-right font-mono tabular-nums">
+                        {formatMilesEs(f.estimado, 4)}
+                      </td>
+                      <td className="border-r border-slate-100 px-1 py-0.5 align-middle">
+                        <MoneyTextField
+                          id={`cm-${f.codigo}`}
+                          label={`Cierre manual ${f.codigo}`}
+                          omitLabel
+                          maxFrac={2}
+                          value={f.manualStr}
+                          onChange={(v) => setMontosManualCierre((prev) => ({ ...prev, [f.codigo]: v }))}
+                          inputClassName={cellInput}
+                        />
+                      </td>
+                      <td
+                        className={`px-2 py-1 text-right font-mono font-medium tabular-nums ${
+                          showDiff ? 'bg-red-50 text-red-700' : 'text-slate-600'
+                        }`}
+                      >
+                        {f.diff != null ? formatMilesEs(f.diff, 4) : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            <div className="border-t border-slate-200 px-2 py-2">
               <button
                 type="button"
                 disabled={finalizando}
                 onClick={() => void onFinalizarCierre()}
-                className="btn-primary min-h-[42px] w-full text-sm sm:w-auto"
+                className="rounded border border-slate-800 bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
               >
                 {finalizando ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Finalizar cierre'}
               </button>
-              <p className="mt-2 text-[10px] text-slate-500">
-                Diferencia = cierre manual − cierre estimado. Si no es cero, se muestra en rojo.
-              </p>
             </div>
           </>
         )}
-      </section>
+      </div>
     </div>
   )
 }

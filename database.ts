@@ -98,7 +98,6 @@ export interface Database {
           total_cop: number
           fecha: string
           metodo_pago: 'Efectivo' | 'Nequi' | 'Cheque' | null
-          ganancia_cop: number | null
         }
         Insert: {
           usuario_id?: string | null
@@ -109,7 +108,6 @@ export interface Database {
           total_cop: number
           fecha?: string
           metodo_pago?: 'Efectivo' | 'Nequi' | 'Cheque' | null
-          ganancia_cop?: number | null
         }
         Update: {
           usuario_id?: string | null
@@ -120,7 +118,6 @@ export interface Database {
           total_cop?: number
           fecha?: string
           metodo_pago?: 'Efectivo' | 'Nequi' | 'Cheque' | null
-          ganancia_cop?: number | null
         }
         Relationships: []
       }
@@ -154,16 +151,10 @@ export interface Database {
           usuario_id: string
           fecha: string
           moneda: string
-          monto_inicial: number
-          promedio_inicial: number
-          total_compra_monto: number
-          promedio_compra_dia: number
-          total_venta_monto: number
-          promedio_venta_dia: number
-          cierre_estimado_sistema: number
-          cierre_manual_fisico: number
-          diferencia_arqueo: number
-          ganancia_neta_cop: number
+          apertura: number
+          cierre_manual: number
+          cierre_estimado: number
+          ganancia_calculada: number
           created_at: string
         }
         Insert: {
@@ -171,29 +162,17 @@ export interface Database {
           usuario_id: string
           fecha: string
           moneda: string
-          monto_inicial?: number
-          promedio_inicial?: number
-          total_compra_monto?: number
-          promedio_compra_dia?: number
-          total_venta_monto?: number
-          promedio_venta_dia?: number
-          cierre_estimado_sistema?: number
-          cierre_manual_fisico?: number
-          diferencia_arqueo?: number
-          ganancia_neta_cop?: number
+          apertura?: number
+          cierre_manual?: number
+          cierre_estimado?: number
+          ganancia_calculada?: number
           created_at?: string
         }
         Update: {
-          monto_inicial?: number
-          promedio_inicial?: number
-          total_compra_monto?: number
-          promedio_compra_dia?: number
-          total_venta_monto?: number
-          promedio_venta_dia?: number
-          cierre_estimado_sistema?: number
-          cierre_manual_fisico?: number
-          diferencia_arqueo?: number
-          ganancia_neta_cop?: number
+          apertura?: number
+          cierre_manual?: number
+          cierre_estimado?: number
+          ganancia_calculada?: number
         }
         Relationships: []
       }

@@ -12,31 +12,6 @@ async function serverClient() {
   return createServerActionClient({ cookies })
 }
 
-async function ultimoPrecioCompraPorMoneda(
-  supabase: Awaited<ReturnType<typeof serverClient>>,
-  userId: string,
-  moneda: string
-): Promise<number | null> {
-  try {
-    const { data, error } = await supabase
-      .from('transacciones')
-      .select('tasa_aplicada')
-      .eq('usuario_id', userId)
-      .eq('tipo', 'COMPRA')
-      .eq('moneda', moneda)
-      .order('fecha', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (error || !data) return null
-    const n = Number((data as { tasa_aplicada: number }).tasa_aplicada)
-    return Number.isFinite(n) && n > 0 ? n : null
-  } catch (e) {
-    logServerError('ultimoPrecioCompraPorMoneda', e)
-    return null
-  }
-}
-
 export async function registrarCompra(
   raw: unknown
 ): Promise<ActionResult<{ total_cop: number; tasa: number }>> {
@@ -69,7 +44,6 @@ export async function registrarCompra(
       total_cop,
       usuario_id: user.id,
       metodo_pago: metodo_pago as MetodoPago,
-      ganancia_cop: 0,
     })
 
     if (error) {
@@ -92,7 +66,7 @@ export async function registrarCompra(
 
 export async function registrarVenta(
   raw: unknown
-): Promise<ActionResult<{ total_cop: number; tasa: number; ganancia_cop: number }>> {
+): Promise<ActionResult<{ total_cop: number; tasa: number }>> {
   const parsed = transaccionCompraVentaSchema.safeParse(raw)
   if (!parsed.success) {
     const msg = parsed.error.flatten().fieldErrors
@@ -114,12 +88,6 @@ export async function registrarVenta(
     const total_cop = totalCopFromTasa(cantidad, tasaEfectiva)
     if (total_cop <= 0) return { ok: false, error: 'Monto COP inválido.' }
 
-    const precioCompraRef = await ultimoPrecioCompraPorMoneda(supabase, user.id, divisa)
-    let ganancia_cop = 0
-    if (precioCompraRef != null) {
-      ganancia_cop = Math.round((tasaEfectiva - precioCompraRef) * cantidad * 100) / 100
-    }
-
     const { error } = await supabase.from('transacciones').insert({
       tipo: 'VENTA',
       moneda: divisa,
@@ -128,7 +96,6 @@ export async function registrarVenta(
       total_cop,
       usuario_id: user.id,
       metodo_pago: metodo_pago as MetodoPago,
-      ganancia_cop,
     })
 
     if (error) {
@@ -141,7 +108,7 @@ export async function registrarVenta(
     revalidatePath('/historial')
     revalidatePath('/inventory')
     revalidatePath('/caja')
-    return { ok: true, data: { total_cop, tasa: tasaEfectiva, ganancia_cop } }
+    return { ok: true, data: { total_cop, tasa: tasaEfectiva } }
   } catch (e) {
     logServerError('registrarVenta', e)
     return { ok: false, error: 'Error inesperado al registrar.' }

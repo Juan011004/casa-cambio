@@ -1,25 +1,19 @@
--- Auditoría de cierres diarios (promedios ponderados y arqueo).
+-- Cierre diario simplificado (5 columnas de negocio + metadatos).
 -- Ejecutar en Supabase SQL Editor. Requiere public.divisas(codigo).
 
-CREATE TABLE IF NOT EXISTS public.cierres_diarios (
+ALTER TABLE public.transacciones DROP COLUMN IF EXISTS ganancia_cop;
+
+DROP TABLE IF EXISTS public.cierres_diarios CASCADE;
+
+CREATE TABLE public.cierres_diarios (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     usuario_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    fecha DATE NOT NULL,
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
     moneda TEXT NOT NULL REFERENCES public.divisas(codigo),
-
-    monto_inicial NUMERIC(15, 2) NOT NULL DEFAULT 0,
-    promedio_inicial NUMERIC(15, 2) NOT NULL DEFAULT 0,
-
-    total_compra_monto NUMERIC(15, 2) NOT NULL DEFAULT 0,
-    promedio_compra_dia NUMERIC(15, 2) NOT NULL DEFAULT 0,
-    total_venta_monto NUMERIC(15, 2) NOT NULL DEFAULT 0,
-    promedio_venta_dia NUMERIC(15, 2) NOT NULL DEFAULT 0,
-
-    cierre_estimado_sistema NUMERIC(15, 2) NOT NULL DEFAULT 0,
-    cierre_manual_fisico NUMERIC(15, 2) NOT NULL DEFAULT 0,
-    diferencia_arqueo NUMERIC(15, 2) NOT NULL DEFAULT 0,
-    ganancia_neta_cop NUMERIC(15, 2) NOT NULL DEFAULT 0,
-
+    apertura NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    cierre_manual NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    cierre_estimado NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    ganancia_calculada NUMERIC(15, 2) NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (usuario_id, fecha, moneda)
 );

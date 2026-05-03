@@ -3,19 +3,11 @@
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { createServerActionClient } from '@supabase/auth-helpers-nextjs'
-import type { ActionResult } from '@/types/database'
-import type { Transaccion } from '@/types/database'
+import type { ActionResult, Transaccion } from '@/types/database'
 import { cajaGuardarSchema, finalizarCierreSchema } from '@/lib/validation/schemas'
 import { logServerError } from '@/lib/server/server-log'
-import { addDaysYYYYMMDD, dayBoundsLocal } from '@/lib/utils'
-import {
-  agregarCompraVentaPorMoneda,
-  cierreEstimadoOperativo,
-  costoPromedioPonderadoVenta,
-  gananciaNetaCopVenta,
-  sumDeudaDiaPorMoneda,
-  type DeudaDiaLite,
-} from '@/lib/cierreAuditoria'
+import { dayBoundsLocal } from '@/lib/utils'
+import { agregarCompraVentaPorMoneda, cierreEstimadoSimple, gananciaDiaPonderadaCop } from '@/lib/cierreAuditoria'
 import type { Database } from '@/database'
 
 type CierreInsert = Database['public']['Tables']['cierres_diarios']['Insert']
@@ -92,9 +84,7 @@ function mapAperturaCaja(rows: { tipo: string; moneda: string; monto: number }[]
   return ap
 }
 
-/**
- * Guarda cierre manual en caja_diaria y alinea inventario.cantidad_actual al conteo físico.
- */
+/** Guarda cierre manual, filas en `cierres_diarios` e inventario al conteo físico. */
 export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
   const parsed = finalizarCierreSchema.safeParse(raw)
   if (!parsed.success) {
@@ -112,119 +102,49 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
     } = await supabase.auth.getUser()
     if (userErr || !user?.id) return { ok: false, error: 'Sesión no válida.', code: 'AUTH' }
 
-    const { fecha, manualCierre } = parsed.data
+    const { fecha, manualCierre, aperturas } = parsed.data
     const { desde, hastaExclusive } = dayBoundsLocal(fecha)
-    const fechaAyer = addDaysYYYYMMDD(fecha, -1)
 
-    const [txRes, deudaRes, cajaDiaRes, cierresAyerRes] = await Promise.all([
+    const [txRes, cajaDiaRes] = await Promise.all([
       supabase
         .from('transacciones')
         .select('*')
         .eq('usuario_id', user.id)
         .gte('fecha', desde)
         .lt('fecha', hastaExclusive),
-      supabase
-        .from('deudas')
-        .select('tipo,divisa,monto')
-        .eq('usuario_id', user.id)
-        .gte('fecha', desde)
-        .lt('fecha', hastaExclusive),
       supabase.from('caja_diaria').select('tipo,moneda,monto').eq('usuario_id', user.id).eq('fecha', fecha),
-      supabase.from('cierres_diarios').select('*').eq('usuario_id', user.id).eq('fecha', fechaAyer),
     ])
 
     if (txRes.error) {
       logServerError('finalizarCierreCaja/tx', new Error(txRes.error.message))
       return { ok: false, error: 'No se pudieron leer las transacciones del día.' }
     }
-    if (deudaRes.error) {
-      logServerError('finalizarCierreCaja/deudas', new Error(deudaRes.error.message))
-      return { ok: false, error: 'No se pudieron leer las deudas del día.' }
-    }
     if (cajaDiaRes.error) {
       logServerError('finalizarCierreCaja/cajaDia', new Error(cajaDiaRes.error.message))
       return { ok: false, error: 'No se pudo leer la caja del día.' }
     }
-    if (cierresAyerRes.error) {
-      logServerError('finalizarCierreCaja/cierresAyer', new Error(cierresAyerRes.error.message))
-    }
 
     const txs = (txRes.data ?? []) as Transaccion[]
-    const debtRows = (deudaRes.data ?? []) as DeudaDiaLite[]
     const aperturaCajaMap = mapAperturaCaja((cajaDiaRes.data ?? []) as { tipo: string; moneda: string; monto: number }[])
-
-    const ayerPorMoneda = new Map<string, { cierre_manual_fisico: number; promedio_compra_dia: number }>()
-    for (const row of (cierresAyerRes.error ? [] : cierresAyerRes.data) ?? []) {
-      const r = row as Record<string, unknown>
-      const mon = String(r.moneda ?? '').toUpperCase()
-      if (!mon) continue
-      ayerPorMoneda.set(mon, {
-        cierre_manual_fisico: Number(r.cierre_manual_fisico),
-        promedio_compra_dia: Number(r.promedio_compra_dia),
-      })
-    }
 
     const manualEntries = Object.entries(manualCierre).filter(([, m]) => Number.isFinite(m))
     const auditoriaRows: CierreInsert[] = []
 
-    for (const [monedaRaw, cierreManualFisico] of manualEntries) {
+    for (const [monedaRaw, cierreManual] of manualEntries) {
       const moneda = monedaRaw.toUpperCase()
-      const ayer = ayerPorMoneda.get(moneda)
-      const debenDia = sumDeudaDiaPorMoneda(debtRows, moneda, 'DEBEN')
-      const deboDia = sumDeudaDiaPorMoneda(debtRows, moneda, 'DEBO')
-      const aperturaOperativa = aperturaCajaMap[moneda] ?? 0
-
-      const montoInicial =
-        ayer != null && Number.isFinite(ayer.cierre_manual_fisico)
-          ? ayer.cierre_manual_fisico
-          : aperturaOperativa
-      const promedioInicial =
-        ayer != null && Number.isFinite(ayer.promedio_compra_dia) ? ayer.promedio_compra_dia : 0
-
-      const {
-        totalCompraMonto,
-        costoCompraCop,
-        promedioCompraDia,
-        totalVentaMonto,
-        promedioVentaDia,
-      } = agregarCompraVentaPorMoneda(txs, moneda)
-      const cierreEstimadoSistema = cierreEstimadoOperativo({
-        aperturaCaja: aperturaOperativa,
-        compras: totalCompraMonto,
-        ventas: totalVentaMonto,
-        debenDia,
-        deboDia,
-      })
-
-      const costoUnitarioWac = costoPromedioPonderadoVenta({
-        montoInicial,
-        promedioInicial,
-        totalCompraMonto,
-        costoCompraCop,
-        promedioCompraDia,
-      })
-      const gananciaNetaCop = gananciaNetaCopVenta({
-        totalVentaMonto,
-        promedioVentaDia,
-        costoUnitarioWac: costoUnitarioWac,
-      })
-
-      const diferenciaArqueo = cierreManualFisico - cierreEstimadoSistema
+      const aperturaSnap = aperturas?.[moneda] ?? aperturaCajaMap[moneda] ?? 0
+      const { totalCompraMonto, totalVentaMonto } = agregarCompraVentaPorMoneda(txs, moneda)
+      const cierreEstimado = cierreEstimadoSimple(aperturaSnap, totalCompraMonto, totalVentaMonto)
+      const gananciaCalculada = gananciaDiaPonderadaCop(txs, moneda)
 
       auditoriaRows.push({
         usuario_id: user.id,
         fecha,
         moneda,
-        monto_inicial: montoInicial,
-        promedio_inicial: promedioInicial,
-        total_compra_monto: totalCompraMonto,
-        promedio_compra_dia: promedioCompraDia,
-        total_venta_monto: totalVentaMonto,
-        promedio_venta_dia: promedioVentaDia,
-        cierre_estimado_sistema: cierreEstimadoSistema,
-        cierre_manual_fisico: cierreManualFisico,
-        diferencia_arqueo: diferenciaArqueo,
-        ganancia_neta_cop: gananciaNetaCop,
+        apertura: aperturaSnap,
+        cierre_manual: cierreManual,
+        cierre_estimado: cierreEstimado,
+        ganancia_calculada: gananciaCalculada,
       })
     }
 
@@ -264,12 +184,15 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
         .eq('fecha', fecha)
       if (delAud) {
         logServerError('finalizarCierreCaja/delAud', new Error(delAud.message))
-        return { ok: false, error: 'No se pudo actualizar la auditoría de cierres.' }
+        return { ok: false, error: 'No se pudo actualizar el historial de cierres.' }
       }
       const { error: insAud } = await supabase.from('cierres_diarios').insert(auditoriaRows)
       if (insAud) {
-        logServerError('finalizarCierreCaja/auditoria', new Error(insAud.message))
-        return { ok: false, error: 'Cierre guardado pero falló la auditoría (cierres_diarios). Ejecute el SQL de la tabla si aún no existe.' }
+        logServerError('finalizarCierreCaja/cierres', new Error(insAud.message))
+        return {
+          ok: false,
+          error: 'Cierre guardado pero falló el historial. Ejecute el SQL de `cierres_diarios` si aún no existe.',
+        }
       }
     }
 

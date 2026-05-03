@@ -87,9 +87,7 @@ export default function SellForm() {
       }
       const r = res.data
       toast.success('Venta registrada', {
-        description: r
-          ? `${formatCOP(r.total_cop)} · Ganancia ${formatCOP(r.ganancia_cop)}`
-          : formatCOP(totalCOP),
+        description: r ? formatCOP(r.total_cop) : formatCOP(totalCOP),
       })
       clearErrors()
       reset(
