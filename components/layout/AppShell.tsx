@@ -12,6 +12,7 @@ import {
   Wallet,
   Landmark,
   History,
+  PiggyBank,
   type LucideIcon,
 } from 'lucide-react'
 import { Sidebar } from '@/components/layout/Sidebar'
@@ -26,6 +27,7 @@ const MOBILE: { label: string; href: string; icon: LucideIcon }[] = [
   { label: 'COMP.', href: '/comprar', icon: ArrowDownLeft },
   { label: 'VEND.', href: '/vender', icon: ArrowUpRight },
   { label: 'CAJA', href: '/caja', icon: Landmark },
+  { label: 'TGO', href: '/tengo', icon: PiggyBank },
   { label: 'GASTOS', href: '/gastos', icon: Wallet },
   { label: 'DEBEN', href: '/nos-deben', icon: HandCoins },
   { label: 'DEBO', href: '/debemos', icon: Scale },
@@ -43,7 +45,7 @@ export function AppShell({ children }: AppShellProps) {
   if (hideShell) return <>{children}</>
 
   return (
-    <div className="flex min-h-screen bg-white text-[13px] text-black">
+    <div className="flex min-h-screen bg-white text-base text-black">
       <Suspense
         fallback={
           <aside className="fixed inset-y-0 left-0 z-40 hidden w-[var(--sidebar-width)] border-r border-slate-100 bg-white lg:block" />

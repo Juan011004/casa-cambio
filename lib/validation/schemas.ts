@@ -122,7 +122,7 @@ export const finalizarCierreSchema = z.object({
   aperturas: montosRecord.optional(),
 })
 
-/** Punto cero: inventario inicial en papel → sistema (una fila por usuario/fecha/divisa). */
+/** Activo en COP (patrimonio declarado en Tengo). */
 export const crearActivoSchema = z.object({
   concepto: z
     .string()
@@ -134,7 +134,44 @@ export const crearActivoSchema = z.object({
     .number({ invalid_type_error: 'Monto inválido' })
     .positive('El valor debe ser mayor a 0')
     .max(moneyMax, 'Monto demasiado grande'),
-  cuenta: z.enum(['EFECTIVO', 'NEQUI', 'DEUDA', 'OTROS']),
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida').optional(),
+})
+
+export const actualizarActivoSchema = z.object({
+  id: uuidSchema,
+  concepto: z
+    .string()
+    .min(1, 'Indique el concepto.')
+    .max(120)
+    .transform((s) => safePlainText(s, 120))
+    .refine((s) => s.length > 0, { message: 'Indique el concepto.' }),
+  valor_cop: z.coerce
+    .number({ invalid_type_error: 'Monto inválido' })
+    .positive('El valor debe ser mayor a 0')
+    .max(moneyMax, 'Monto demasiado grande'),
+})
+
+export const arqueoTengoUpsertSchema = z.object({
+  id: uuidSchema.optional(),
+  moneda_codigo: z
+    .string()
+    .min(2)
+    .max(12)
+    .transform(safeDivisaCode)
+    .refine((s) => s.length >= 2, { message: 'Divisa inválida' }),
+  moneda_nombre: z
+    .string()
+    .min(1, 'Indique el nombre de la moneda.')
+    .max(120)
+    .transform((s) => safePlainText(s, 120)),
+  cantidad: z.coerce
+    .number({ invalid_type_error: 'Cantidad inválida' })
+    .nonnegative('La cantidad no puede ser negativa')
+    .max(moneyMax, 'Valor demasiado grande'),
+  precio_compra: z.coerce
+    .number({ invalid_type_error: 'Precio inválido' })
+    .nonnegative('El precio no puede ser negativo')
+    .max(moneyMax, 'Valor demasiado grande'),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida').optional(),
 })
 

@@ -14,6 +14,7 @@ import {
   Wallet,
   Landmark,
   History,
+  PiggyBank,
 } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { cn } from '@/lib/utils'
@@ -29,6 +30,7 @@ const NAV_ITEMS: NavEntry[] = [
   { label: 'COMPRAR', href: '/comprar', icon: ArrowDownLeft },
   { label: 'VENDER', href: '/vender', icon: ArrowUpRight },
   { label: 'CAJA', href: '/caja', icon: Landmark },
+  { label: 'TENGO', href: '/tengo', icon: PiggyBank },
   { label: 'GASTOS', href: '/gastos', icon: Wallet },
   { label: 'NOS DEBEN', href: '/nos-deben', icon: HandCoins },
   { label: 'DEBEMOS', href: '/debemos', icon: Scale },
@@ -57,7 +59,7 @@ export function Sidebar() {
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-600">
           <Banknote className="h-4 w-4 text-white" aria-hidden />
         </div>
-        <p className="text-xs font-semibold leading-tight text-black">Casa Cambio</p>
+        <p className="text-sm font-semibold leading-tight text-black">Casa Cambio</p>
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-1.5 py-1.5">
@@ -70,7 +72,7 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                'flex items-center gap-2 rounded-md px-2 py-2 text-xs font-semibold text-black no-underline outline-none',
+                'flex items-center gap-2 rounded-md px-2 py-2 text-sm font-semibold text-black no-underline outline-none',
                 active ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'
               )}
             >
@@ -85,7 +87,7 @@ export function Sidebar() {
         <button
           type="button"
           onClick={handleLogout}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-xs font-medium text-black hover:bg-slate-50"
+          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-black hover:bg-slate-50"
         >
           <LogOut className="h-4 w-4" aria-hidden />
           Salir

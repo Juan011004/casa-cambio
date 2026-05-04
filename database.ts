@@ -233,7 +233,6 @@ export interface Database {
           usuario_id: string
           concepto: string
           valor_cop: number
-          cuenta: 'EFECTIVO' | 'NEQUI' | 'DEUDA' | 'OTROS'
           fecha: string
           created_at: string
         }
@@ -242,14 +241,42 @@ export interface Database {
           usuario_id: string
           concepto: string
           valor_cop?: number
-          cuenta: 'EFECTIVO' | 'NEQUI' | 'DEUDA' | 'OTROS'
           fecha?: string
           created_at?: string
         }
         Update: {
           concepto?: string
           valor_cop?: number
-          cuenta?: 'EFECTIVO' | 'NEQUI' | 'DEUDA' | 'OTROS'
+          fecha?: string
+        }
+        Relationships: []
+      }
+      arqueo_tengo: {
+        Row: {
+          id: string
+          usuario_id: string
+          moneda_codigo: string
+          moneda_nombre: string
+          cantidad: number
+          precio_compra: number
+          fecha: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          usuario_id: string
+          moneda_codigo: string
+          moneda_nombre: string
+          cantidad?: number
+          precio_compra?: number
+          fecha?: string
+          created_at?: string
+        }
+        Update: {
+          moneda_codigo?: string
+          moneda_nombre?: string
+          cantidad?: number
+          precio_compra?: number
           fecha?: string
         }
         Relationships: []

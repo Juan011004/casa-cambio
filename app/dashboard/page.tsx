@@ -11,7 +11,7 @@ import { obtenerTrmMercado } from '@/app/actions/trm'
 import { TRM_TICKER_ORDER, type TrmMercadoFila } from '@/lib/trm-ticker'
 import { CargaInicialDialog } from '@/components/CargaInicialDialog'
 import { filasAuditoriaVivo, monedasParaAuditoria } from '@/lib/auditoriaVivo'
-import { montoDivisaEnCop, valorInventarioCop, saldoDeudasNetoCop } from '@/lib/balanceCop'
+import { saldoDeudasNetoCop } from '@/lib/balanceCop'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import type { Transaccion } from '@/types/database'
@@ -94,7 +94,7 @@ function TarjetaBalanceCop({
     <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
       <div className="min-h-[4.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
         <h2 className="text-[10px] font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
-        <p className="mt-1 font-mono text-[15px] font-bold leading-tight tabular-nums text-slate-900">
+        <p className="mt-1 font-mono text-2xl font-bold leading-tight tabular-nums text-slate-900">
           {ld ? '…' : formatCOP(valorCop)}
         </p>
       </div>
@@ -157,7 +157,8 @@ export default function DashboardPage() {
   const [cierresPrevRows, setCierresPrevRows] = useState<CierreRowParaArrastre[]>([])
   const [cargaInicialOpen, setCargaInicialOpen] = useState(false)
   const [invRows, setInvRows] = useState<{ divisa: string; cantidad_actual: number }[]>([])
-  const [activosLiquidosCop, setActivosLiquidosCop] = useState(0)
+  const [sumActivosCop, setSumActivosCop] = useState(0)
+  const [sumArqueoCop, setSumArqueoCop] = useState(0)
   const [gastosDiaCop, setGastosDiaCop] = useState(0)
 
   const load = useCallback(async () => {
@@ -182,7 +183,8 @@ export default function DashboardPage() {
       .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
       .lt('fecha', fechaDia)
     let invQ = supabase.from('inventario').select('divisa,cantidad_actual')
-    let actQ = supabase.from('activos').select('valor_cop,cuenta')
+    let actQ = supabase.from('activos').select('valor_cop')
+    let arqQ = supabase.from('arqueo_tengo').select('cantidad,precio_compra')
     let gastosQ = supabase.from('gastos').select('monto_cop').gte('fecha', desde).lt('fecha', hastaExclusive)
     if (user?.id) {
       debenQ = debenQ.eq('usuario_id', user.id)
@@ -190,16 +192,18 @@ export default function DashboardPage() {
       cierresPrevQ = cierresPrevQ.eq('usuario_id', user.id)
       invQ = invQ.eq('usuario_id', user.id)
       actQ = actQ.eq('usuario_id', user.id)
+      arqQ = arqQ.eq('usuario_id', user.id)
       gastosQ = gastosQ.eq('usuario_id', user.id)
     }
 
-    const [txRes, ndRes, dbRes, cPrevRes, invRes, actRes, gastRes] = await Promise.all([
+    const [txRes, ndRes, dbRes, cPrevRes, invRes, actRes, arqRes, gastRes] = await Promise.all([
       txQuery,
       debenQ,
       deboQ,
       cierresPrevQ,
       invQ,
       actQ,
+      arqQ,
       gastosQ,
     ])
 
@@ -220,14 +224,15 @@ export default function DashboardPage() {
     setInvRows(
       (invRes.error ? [] : invRes.data ?? []) as { divisa: string; cantidad_actual: number }[]
     )
-    setActivosLiquidosCop(
-      actRes.error
+    setSumActivosCop(
+      actRes.error ? 0 : (actRes.data ?? []).reduce((s, r) => s + Number((r as { valor_cop: number }).valor_cop), 0)
+    )
+    setSumArqueoCop(
+      arqRes.error
         ? 0
-        : (actRes.data ?? []).reduce((s, r) => {
-            const row = r as { valor_cop: number; cuenta: string }
-            if (row.cuenta === 'EFECTIVO' || row.cuenta === 'NEQUI')
-              return s + Number(row.valor_cop)
-            return s
+        : (arqRes.data ?? []).reduce((s, r) => {
+            const row = r as { cantidad: number; precio_compra: number }
+            return s + Number(row.cantidad) * Number(row.precio_compra)
           }, 0)
     )
     setGastosDiaCop(
@@ -300,25 +305,19 @@ export default function DashboardPage() {
     [txRows, ultimoCierrePorMoneda, monedasAudit]
   )
 
-  const valorPosicionVivaCop = useMemo(() => {
-    let s = 0
-    for (const f of filasAuditVivo) {
-      s += montoDivisaEnCop(f.cantidadFinal, f.moneda, copMap)
-    }
-    return s
-  }, [filasAuditVivo, copMap])
+  /** Patrimonio declarado en Tengo (activos COP + arqueo físico); no usa inventario ni transacciones del día. */
+  const patrimonioDeclaradoCop = useMemo(
+    () => sumActivosCop + sumArqueoCop,
+    [sumActivosCop, sumArqueoCop]
+  )
 
   const deboTenerCop = useMemo(() => {
-    return (
-      valorInventarioCop(invRows, copMap) +
-      saldoDeudasNetoCop(debenRows, deboRows, copMap) -
-      gastosDiaCop
-    )
-  }, [invRows, debenRows, deboRows, copMap, gastosDiaCop])
+    return patrimonioDeclaradoCop + saldoDeudasNetoCop(debenRows, deboRows, copMap) - gastosDiaCop
+  }, [patrimonioDeclaradoCop, debenRows, deboRows, copMap, gastosDiaCop])
 
   const tengoCop = useMemo(() => {
-    return valorPosicionVivaCop + activosLiquidosCop - gastosDiaCop
-  }, [valorPosicionVivaCop, activosLiquidosCop, gastosDiaCop])
+    return patrimonioDeclaradoCop - gastosDiaCop
+  }, [patrimonioDeclaradoCop, gastosDiaCop])
 
   const etiquetaMoneda = useMemo(() => {
     const opt = divisasMaestro.length ? divisasMaestro : DIVISAS_FALLBACK
@@ -337,9 +336,9 @@ export default function DashboardPage() {
   const recientes = useMemo(() => txRows.slice(0, 10), [txRows])
 
   return (
-    <main className="space-y-5 text-[13px] text-black">
+    <main className="space-y-6 text-base text-black">
       <div className="flex flex-wrap items-end justify-between gap-2">
-        <h1 className="text-lg font-bold">Inicio</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Inicio</h1>
         <input
           type="date"
           value={fechaDia}
@@ -500,9 +499,13 @@ export default function DashboardPage() {
         onGuardado={() => void load()}
       />
 
-      <p className="text-xs text-slate-500">
+      <p className="text-sm text-slate-500">
         <a href="/caja" className="font-semibold underline">
           Caja
+        </a>{' '}
+        ·{' '}
+        <a href="/tengo" className="font-semibold underline">
+          Tengo
         </a>{' '}
         ·{' '}
         <a href="/historial" className="font-semibold underline">
