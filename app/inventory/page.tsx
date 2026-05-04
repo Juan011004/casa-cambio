@@ -62,7 +62,7 @@ export default function InventoryPage() {
         </p>
       ) : (
         <div className="card-pro overflow-hidden border border-slate-200">
-          <table className="w-full border-collapse text-sm">
+          <table className="w-full border-collapse text-[15px]">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-100">
                 <th className="table-header">Divisa</th>
@@ -82,7 +82,7 @@ export default function InventoryPage() {
                   <td className="table-cell text-right font-mono font-medium">
                     {formatMilesEs(Number(r.cantidad_actual), 4)}
                   </td>
-                  <td className="table-cell text-[11px] text-slate-600">
+                  <td className="table-cell text-[13px] text-slate-600">
                     {r.ultima_actualizacion
                       ? new Date(r.ultima_actualizacion).toLocaleString('es-CO', {
                           dateStyle: 'short',

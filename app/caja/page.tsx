@@ -39,7 +39,7 @@ function sumTxByMoneda(rows: Transaccion[], tipo: 'COMPRA' | 'VENTA'): Record<st
 }
 
 const cellInput =
-  'mx-auto w-full max-w-[140px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[12px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0'
+  'mx-auto w-full max-w-[140px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0'
 
 const CUENTAS_ACTIVO = [
   { value: 'EFECTIVO' as const, label: 'Efectivo' },
@@ -365,7 +365,7 @@ export default function CajaPage() {
           </div>
         </form>
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-[11px]">
+          <table className="w-full border-collapse text-left text-[13px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
                 <th className="px-3 py-2 font-bold text-slate-700">Concepto</th>
@@ -417,7 +417,7 @@ export default function CajaPage() {
           <p className="p-4 text-center text-sm text-slate-500">…</p>
         ) : (
           <>
-            <table className="w-full border-collapse text-center text-[12px]">
+            <table className="w-full border-collapse text-center text-[14px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
                   <th className="border-r border-slate-200 px-2 py-2 text-left font-bold text-slate-800">Moneda</th>

@@ -94,7 +94,7 @@ function TarjetaBalanceCop({
     <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
       <div className="min-h-[4.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
         <h2 className="text-[10px] font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
-        <p className="mt-1 font-mono text-sm font-bold tabular-nums text-slate-900">
+        <p className="mt-1 font-mono text-[15px] font-bold leading-tight tabular-nums text-slate-900">
           {ld ? '…' : formatCOP(valorCop)}
         </p>
       </div>
@@ -126,11 +126,11 @@ function TarjetaCompacta({
       <div className="min-h-[5.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
         <h2 className="text-[10px] font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
         {!items.length ? (
-          <p className="mt-2 text-[11px] text-slate-400">—</p>
+          <p className="mt-2 text-[13px] text-slate-400">—</p>
         ) : (
           <ul className="mt-1 max-h-20 space-y-0.5 overflow-y-auto">
             {items.map((x) => (
-              <li key={x.codigo} className="flex justify-between gap-2 font-mono text-[11px] tabular-nums text-slate-800">
+              <li key={x.codigo} className="flex justify-between gap-2 font-mono text-[13px] tabular-nums text-slate-800">
                 <span className="font-semibold">{x.codigo}</span>
                 <span>{formatMilesEs(x.valor, decItems)}</span>
               </li>
@@ -379,8 +379,8 @@ export default function DashboardPage() {
                 <p className="text-base leading-none" aria-hidden>
                   {FLAGS[code] ?? '💱'}
                 </p>
-                <p className="mt-1 text-[10px] font-bold text-slate-800">{code}</p>
-                <p className="font-mono text-[11px] font-semibold tabular-nums">{show ? formatCOP(Number(v)) : '—'}</p>
+                <p className="mt-1 text-[11px] font-bold text-slate-800">{code}</p>
+                <p className="font-mono text-[13px] font-semibold tabular-nums">{show ? formatCOP(Number(v)) : '—'}</p>
               </div>
             )
           })}
@@ -397,7 +397,7 @@ export default function DashboardPage() {
           <p className="p-3 text-sm text-slate-500">—</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] border-collapse text-[12px]">
+            <table className="w-full min-w-[560px] border-collapse text-[14px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
                   <th className="px-2 py-2 font-semibold text-slate-700">Hora</th>
@@ -458,7 +458,7 @@ export default function DashboardPage() {
           <p className="p-3 text-center text-sm text-slate-500">Sin divisas con saldo o movimiento para este día.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse text-center text-[11px]">
+            <table className="w-full min-w-[900px] border-collapse text-center text-[13px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
                   <th className="px-1.5 py-2 font-bold text-slate-700">Fecha</th>

@@ -32,7 +32,7 @@ type BorradorFila = {
 const METODOS: MetodoPago[] = ['Efectivo', 'Nequi', 'Cheque']
 
 const inputEdit =
-  'w-full min-w-0 rounded-md border border-slate-200 bg-slate-50/90 py-1.5 px-1 text-center text-[11px] font-mono shadow-inner focus:border-blue-500 focus:bg-white focus:outline-none'
+  'w-full min-w-0 rounded-md border border-slate-200 bg-slate-50/90 py-1.5 px-1 text-center text-[13px] font-mono shadow-inner focus:border-blue-500 focus:bg-white focus:outline-none'
 
 export default function HistorialPage() {
   const supabase = createBrowserSupabaseClient()
@@ -322,7 +322,7 @@ export default function HistorialPage() {
         <SkeletonTable rows={PAGE_SIZE} cols={8} />
       ) : (
         <div className="card-pro overflow-hidden border border-slate-100">
-          <table className="w-full border-collapse text-center text-[12px]">
+          <table className="w-full border-collapse text-center text-[14px]">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-100">
                 <th className="table-header">#</th>
@@ -351,8 +351,8 @@ export default function HistorialPage() {
                       : tx.total_cop
                   return (
                     <tr key={tx.id} className="table-row-striped hover:bg-slate-50/80">
-                      <td className="table-cell text-[11px] text-slate-500">{(page - 1) * PAGE_SIZE + idx + 1}</td>
-                      <td className="table-cell text-[11px] text-slate-700">{formatDate(tx.fecha)}</td>
+                      <td className="table-cell text-[13px] text-slate-500">{(page - 1) * PAGE_SIZE + idx + 1}</td>
+                      <td className="table-cell text-[13px] text-slate-700">{formatDate(tx.fecha)}</td>
                       <td className="table-cell align-middle">
                         {modoEdicion && b ? (
                           <select
@@ -370,7 +370,7 @@ export default function HistorialPage() {
                           </select>
                         ) : (
                           <span
-                            className={`inline-flex items-center justify-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                            className={`inline-flex items-center justify-center gap-1 rounded-md border px-2 py-0.5 text-[13px] font-medium ${
                               tx.tipo === 'COMPRA'
                                 ? 'border-slate-100 bg-slate-50 text-slate-800'
                                 : 'border-slate-100 bg-white text-slate-800'
@@ -438,13 +438,13 @@ export default function HistorialPage() {
                             className={inputEdit}
                           />
                         ) : (
-                          <span className="font-mono text-[11px]">{formatMilesEs(tx.tasa_aplicada, 2)}</span>
+                          <span className="font-mono text-[13px]">{formatMilesEs(tx.tasa_aplicada, 2)}</span>
                         )}
                       </td>
                       <td className="table-cell font-mono font-medium">
                         {modoEdicion && b ? formatCOP(totalPreview) : formatCOP(tx.total_cop)}
                       </td>
-                      <td className="table-cell align-middle text-[11px]">
+                      <td className="table-cell align-middle text-[13px]">
                         {modoEdicion && b ? (
                           <select
                             value={b.metodo_pago}
