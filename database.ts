@@ -157,7 +157,11 @@ export interface Database {
           ganancia_calculada: number
           promedio_compra: number
           promedio_compra_acumulado: number
+          promedio_anterior: number
+          total_comprado_divisa: number
+          total_vendido_divisa: number
           promedio_venta: number
+          origen: 'OPERATIVO' | 'CARGA_INICIAL'
           created_at: string
         }
         Insert: {
@@ -171,7 +175,11 @@ export interface Database {
           ganancia_calculada?: number
           promedio_compra?: number
           promedio_compra_acumulado?: number
+          promedio_anterior?: number
+          total_comprado_divisa?: number
+          total_vendido_divisa?: number
           promedio_venta?: number
+          origen?: 'OPERATIVO' | 'CARGA_INICIAL'
           created_at?: string
         }
         Update: {
@@ -181,7 +189,11 @@ export interface Database {
           ganancia_calculada?: number
           promedio_compra?: number
           promedio_compra_acumulado?: number
+          promedio_anterior?: number
+          total_comprado_divisa?: number
+          total_vendido_divisa?: number
           promedio_venta?: number
+          origen?: 'OPERATIVO' | 'CARGA_INICIAL'
         }
         Relationships: []
       }

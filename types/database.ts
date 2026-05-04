@@ -65,6 +65,8 @@ export type ActionResult<T = void> =
   | ([T] extends [void] ? { ok: true } : { ok: true; data: T })
   | { ok: false; error: string; code?: string }
 
+export type OrigenCierre = 'OPERATIVO' | 'CARGA_INICIAL'
+
 /** Fila de cierre diario (`cierres_diarios`). */
 export interface CierreDiarioAuditoria {
   id: string
@@ -78,6 +80,11 @@ export interface CierreDiarioAuditoria {
   promedio_compra: number
   /** WAC guardado al cierre; puede faltar en datos previos al ALTER. */
   promedio_compra_acumulado?: number
+  /** COP/unidad arrastrado desde el último cierre antes de este día. */
+  promedio_anterior?: number
+  total_comprado_divisa?: number
+  total_vendido_divisa?: number
   promedio_venta: number
+  origen?: OrigenCierre
   created_at: string
 }

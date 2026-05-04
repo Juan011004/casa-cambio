@@ -121,3 +121,22 @@ export const finalizarCierreSchema = z.object({
   manualCierre: montosRecord,
   aperturas: montosRecord.optional(),
 })
+
+/** Punto cero: inventario inicial en papel → sistema (una fila por usuario/fecha/divisa). */
+export const cargaInicialSchema = z.object({
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
+  divisa: z
+    .string()
+    .min(2)
+    .max(12)
+    .transform(safeDivisaCode)
+    .refine((s) => s.length >= 2, { message: 'Divisa inválida' }),
+  cantidad: z.coerce
+    .number({ invalid_type_error: 'Cantidad inválida' })
+    .positive('La cantidad debe ser mayor a 0')
+    .max(moneyMax, 'Cantidad demasiado grande'),
+  promedio_compra: z.coerce
+    .number({ invalid_type_error: 'Promedio inválido' })
+    .positive('El promedio debe ser mayor a 0')
+    .max(moneyMax, 'Valor demasiado grande'),
+})

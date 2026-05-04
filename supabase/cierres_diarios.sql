@@ -16,7 +16,11 @@ CREATE TABLE public.cierres_diarios (
     ganancia_calculada NUMERIC(15, 2) NOT NULL DEFAULT 0,
     promedio_compra NUMERIC(15, 2) NOT NULL DEFAULT 0,
     promedio_compra_acumulado NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    promedio_anterior NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    total_comprado_divisa NUMERIC(18, 4) NOT NULL DEFAULT 0,
+    total_vendido_divisa NUMERIC(18, 4) NOT NULL DEFAULT 0,
     promedio_venta NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    origen TEXT NOT NULL DEFAULT 'OPERATIVO' CHECK (origen IN ('OPERATIVO', 'CARGA_INICIAL')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (usuario_id, fecha, moneda)
 );
@@ -46,7 +50,10 @@ SELECT DISTINCT ON (usuario_id, moneda)
     moneda,
     fecha,
     cierre_manual AS saldo_anterior,
-    promedio_compra AS promedio_anterior
+    COALESCE(
+      NULLIF(promedio_compra_acumulado, 0::numeric),
+      promedio_compra
+    ) AS promedio_anterior
 FROM public.cierres_diarios
 ORDER BY usuario_id, moneda, fecha DESC;
 

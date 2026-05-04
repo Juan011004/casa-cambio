@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { createServerActionClient } from '@supabase/auth-helpers-nextjs'
 import type { ActionResult, Transaccion } from '@/types/database'
-import { cajaGuardarSchema, finalizarCierreSchema } from '@/lib/validation/schemas'
+import { cajaGuardarSchema, cargaInicialSchema, finalizarCierreSchema } from '@/lib/validation/schemas'
 import { logServerError } from '@/lib/server/server-log'
 import { dayBoundsLocal } from '@/lib/utils'
 import {
@@ -165,7 +165,11 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
         ganancia_calculada: gananciaCalculada,
         promedio_compra: wacCompra,
         promedio_compra_acumulado: wacCompra,
+        promedio_anterior: prev.promedioAnterior,
+        total_comprado_divisa: totalCompraMonto,
+        total_vendido_divisa: totalVentaMonto,
         promedio_venta: promedioVentaDia,
+        origen: 'OPERATIVO',
       })
     }
 
@@ -198,11 +202,13 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
     }
 
     if (auditoriaRows.length > 0) {
+      const monedasCierre = auditoriaRows.map((r) => r.moneda)
       const { error: delAud } = await supabase
         .from('cierres_diarios')
         .delete()
         .eq('usuario_id', user.id)
         .eq('fecha', fecha)
+        .in('moneda', monedasCierre)
       if (delAud) {
         logServerError('finalizarCierreCaja/delAud', new Error(delAud.message))
         return { ok: false, error: 'No se pudo actualizar el historial de cierres.' }
@@ -243,6 +249,91 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
     return { ok: true }
   } catch (e) {
     logServerError('finalizarCierreCaja', e)
+    return { ok: false, error: 'Error inesperado.' }
+  }
+}
+
+/** Registra inventario inicial (papel → sistema). Una fila por fecha/divisa; reemplaza si ya existía. */
+export async function guardarCargaInicial(raw: unknown): Promise<ActionResult> {
+  const parsed = cargaInicialSchema.safeParse(raw)
+  if (!parsed.success) {
+    const issues = parsed.error.flatten().formErrors.concat(
+      Object.values(parsed.error.flatten().fieldErrors).flat()
+    )
+    return { ok: false, error: issues[0] ?? 'Datos inválidos.' }
+  }
+
+  try {
+    const supabase = createServerActionClient({ cookies })
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser()
+    if (userErr || !user?.id) return { ok: false, error: 'Sesión no válida.', code: 'AUTH' }
+
+    const { fecha, divisa, cantidad, promedio_compra: pc } = parsed.data
+    const moneda = divisa.toUpperCase()
+
+    const { error: delErr } = await supabase
+      .from('cierres_diarios')
+      .delete()
+      .eq('usuario_id', user.id)
+      .eq('fecha', fecha)
+      .eq('moneda', moneda)
+
+    if (delErr) {
+      logServerError('guardarCargaInicial/delete', new Error(delErr.message))
+      return { ok: false, error: 'No se pudo preparar el registro.' }
+    }
+
+    const row: CierreInsert = {
+      usuario_id: user.id,
+      fecha,
+      moneda,
+      apertura: cantidad,
+      cierre_manual: cantidad,
+      cierre_estimado: cantidad,
+      ganancia_calculada: 0,
+      promedio_compra: pc,
+      promedio_compra_acumulado: pc,
+      promedio_anterior: 0,
+      total_comprado_divisa: 0,
+      total_vendido_divisa: 0,
+      promedio_venta: 0,
+      origen: 'CARGA_INICIAL',
+    }
+
+    const { error: insErr } = await supabase.from('cierres_diarios').insert(row)
+    if (insErr) {
+      logServerError('guardarCargaInicial/insert', new Error(insErr.message))
+      return {
+        ok: false,
+        error:
+          'No se guardó la carga inicial. Ejecute el SQL `cierres_diarios_auditoria_carga.sql` si faltan columnas.',
+      }
+    }
+
+    const now = new Date().toISOString()
+    const { error: invErr } = await supabase.from('inventario').upsert(
+      {
+        usuario_id: user.id,
+        divisa: moneda,
+        cantidad_actual: cantidad,
+        ultima_actualizacion: now,
+      },
+      { onConflict: 'usuario_id,divisa' }
+    )
+    if (invErr) {
+      logServerError('guardarCargaInicial/inventario', new Error(invErr.message))
+      return { ok: false, error: 'Carga guardada pero falló el inventario.' }
+    }
+
+    revalidatePath('/dashboard')
+    revalidatePath('/caja')
+    revalidatePath('/inventory')
+    return { ok: true }
+  } catch (e) {
+    logServerError('guardarCargaInicial', e)
     return { ok: false, error: 'Error inesperado.' }
   }
 }

@@ -5,14 +5,17 @@ export function exportCierresDiariosExcel(rows: CierreDiarioAuditoria[], fechaEt
   const data = rows.map((r) => ({
     Fecha: r.fecha,
     Moneda: r.moneda,
-    Apertura: r.apertura,
-    'Promedio compra': r.promedio_compra ?? 0,
-    'Promedio acum.': r.promedio_compra_acumulado ?? r.promedio_compra ?? 0,
+    Origen: r.origen ?? 'OPERATIVO',
+    'Cant. inicial': r.apertura,
+    'Prom. anterior': r.promedio_anterior ?? 0,
+    'Total comprado': r.total_comprado_divisa ?? 0,
+    'Nuevo prom. compra': r.promedio_compra_acumulado ?? r.promedio_compra ?? 0,
+    'Total vendido': r.total_vendido_divisa ?? 0,
     'Promedio venta': r.promedio_venta ?? 0,
+    Ganancia: r.ganancia_calculada,
     Estimado: r.cierre_estimado,
     Manual: r.cierre_manual,
     Diferencia: Number(r.cierre_manual) - Number(r.cierre_estimado),
-    Ganancia: r.ganancia_calculada,
   }))
   const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ Fecha: fechaEtiqueta, Moneda: '—' }])
   const wb = XLSX.utils.book_new()

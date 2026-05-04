@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Download } from 'lucide-react'
+import { Download, Package } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { dayBoundsLocal, formatCOP, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
 import { gananciaDiaPonderadaCop } from '@/lib/cierreAuditoria'
@@ -9,6 +9,7 @@ import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '
 import { exportCierresDiariosExcel } from '@/lib/exportCierresExcel'
 import { obtenerTrmMercado } from '@/app/actions/trm'
 import { TRM_TICKER_ORDER, type TrmMercadoFila } from '@/lib/trm-ticker'
+import { CargaInicialDialog } from '@/components/CargaInicialDialog'
 import type { CierreDiarioAuditoria, Transaccion } from '@/types/database'
 import type { CopPorUnidad } from '@/lib/trm'
 
@@ -128,6 +129,7 @@ export default function DashboardPage() {
   const [ultimaTrm, setUltimaTrm] = useState<string | null>(null)
   const [cierresRows, setCierresRows] = useState<CierreDiarioAuditoria[]>([])
   const [cierresPrevRows, setCierresPrevRows] = useState<CierreRowParaArrastre[]>([])
+  const [cargaInicialOpen, setCargaInicialOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -321,14 +323,24 @@ export default function DashboardPage() {
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
           <h2 className="text-sm font-bold">Historial de cierres</h2>
-          <button
-            type="button"
-            onClick={() => exportCierresDiariosExcel(cierresRows, fechaDia)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-white"
-          >
-            <Download className="h-3.5 w-3.5" aria-hidden />
-            Excel
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCargaInicialOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+            >
+              <Package className="h-3.5 w-3.5" aria-hidden />
+              Carga inicial
+            </button>
+            <button
+              type="button"
+              onClick={() => exportCierresDiariosExcel(cierresRows, fechaDia)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-white"
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden />
+              Excel
+            </button>
+          </div>
         </div>
         {loading ? (
           <p className="p-3 text-sm">…</p>
@@ -336,18 +348,22 @@ export default function DashboardPage() {
           <p className="p-3 text-sm text-slate-500">—</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1040px] border-collapse text-center text-[11px]">
+            <table className="w-full min-w-[1520px] border-collapse text-center text-[10px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
-                  <th className="px-2 py-2 font-bold text-slate-700">Fecha</th>
-                  <th className="px-2 py-2 font-bold text-slate-700">Moneda</th>
-                  <th className="px-2 py-2 font-bold text-slate-700">Apertura</th>
-                  <th className="px-2 py-2 font-bold text-slate-700">Prom. compra (WAC)</th>
-                  <th className="px-2 py-2 font-bold text-slate-700">Prom. acum.</th>
-                  <th className="px-2 py-2 font-bold text-slate-700">Promedio venta</th>
-                  <th className="px-2 py-2 font-bold text-slate-700">Estimado</th>
-                  <th className="px-2 py-2 font-bold text-slate-700">Manual</th>
-                  <th className="px-2 py-2 font-bold text-slate-700">Diferencia</th>
+                  <th className="sticky left-0 z-10 bg-slate-100 px-1.5 py-2 font-bold text-slate-700">Fecha</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Moneda</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Origen</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Cant. inicial</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. anterior</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Total comprado</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Nuevo prom. compra</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Total vendido</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. venta</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Ganancia</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Estimado</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Manual</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Diferencia</th>
                 </tr>
               </thead>
               <tbody>
@@ -356,21 +372,36 @@ export default function DashboardPage() {
                   const man = Number(r.cierre_manual)
                   const delta = man - est
                   const deltaClass = delta >= 0 ? 'text-blue-700' : 'text-red-700'
-                  const pc = Number(r.promedio_compra ?? 0)
-                  const pca = Number(r.promedio_compra_acumulado ?? r.promedio_compra ?? 0)
+                  const np = Number(r.promedio_compra_acumulado ?? r.promedio_compra ?? 0)
                   const pv = Number(r.promedio_venta ?? 0)
+                  const pa = Number(r.promedio_anterior ?? 0)
+                  const tc = Number(r.total_comprado_divisa ?? 0)
+                  const tv = Number(r.total_vendido_divisa ?? 0)
+                  const origen = r.origen ?? 'OPERATIVO'
                   return (
                     <tr key={r.id} className="border-b border-slate-100">
-                      <td className="px-2 py-1.5 font-mono text-slate-800">{r.fecha}</td>
-                      <td className="px-2 py-1.5 font-bold">{r.moneda}</td>
-                      <td className="px-2 py-1.5 font-mono tabular-nums">{formatMilesEs(Number(r.apertura), 2)}</td>
-                      <td className="px-2 py-1.5 font-mono tabular-nums">{formatMilesEs(pc, 2)}</td>
-                      <td className="px-2 py-1.5 font-mono tabular-nums">{formatMilesEs(pca, 2)}</td>
-                      <td className="px-2 py-1.5 font-mono tabular-nums">{formatMilesEs(pv, 2)}</td>
-                      <td className="px-2 py-1.5 font-mono tabular-nums">{formatMilesEs(est, 2)}</td>
-                      <td className="px-2 py-1.5 font-mono font-semibold tabular-nums">{formatMilesEs(man, 2)}</td>
-                      <td className={`px-2 py-1.5 font-mono font-bold tabular-nums ${deltaClass}`}>
-                        {formatMilesEs(delta, 2)}
+                      <td className="sticky left-0 z-10 bg-white px-1.5 py-1.5 font-mono text-slate-800">{r.fecha}</td>
+                      <td className="px-1.5 py-1.5 font-bold">{r.moneda}</td>
+                      <td className="px-1.5 py-1.5">
+                        {origen === 'CARGA_INICIAL' ? (
+                          <span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-950">
+                            Inicial
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">Operativo</span>
+                        )}
+                      </td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(Number(r.apertura), 4)}</td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(pa, 2)}</td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(tc, 4)}</td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(np, 2)}</td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(tv, 4)}</td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(pv, 2)}</td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(Number(r.ganancia_calculada), 0)}</td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(est, 4)}</td>
+                      <td className="px-1.5 py-1.5 font-mono font-semibold tabular-nums">{formatMilesEs(man, 4)}</td>
+                      <td className={`px-1.5 py-1.5 font-mono font-bold tabular-nums ${deltaClass}`}>
+                        {formatMilesEs(delta, 4)}
                       </td>
                     </tr>
                   )
@@ -380,6 +411,12 @@ export default function DashboardPage() {
           </div>
         )}
       </section>
+
+      <CargaInicialDialog
+        open={cargaInicialOpen}
+        onClose={() => setCargaInicialOpen(false)}
+        onGuardado={() => void load()}
+      />
 
       <p className="text-xs text-slate-500">
         <a href="/caja" className="font-semibold underline">
