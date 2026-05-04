@@ -281,16 +281,12 @@ export default function CajaPage() {
         if (rawA.trim() !== '' && Number.isFinite(nA)) aperturas[codigo] = nA
         else aperturas[codigo] = aperturaMap[codigo] ?? 0
       }
-      if (Object.keys(manualCierre).length === 0) {
-        toast.error('Indique al menos un cierre manual.')
-        return
-      }
       const res = await finalizarCierreCaja({ fecha, manualCierre, aperturas })
       if (!res.ok) {
         toast.error(res.error)
         return
       }
-      toast.success('Cierre guardado')
+      toast.success(Object.keys(manualCierre).length > 0 ? 'Cierre guardado' : 'Actualizado')
       await cargar()
     } catch (e: unknown) {
       toast.error(errorMessage(e))

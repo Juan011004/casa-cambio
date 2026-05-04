@@ -1,5 +1,29 @@
 import * as XLSX from 'xlsx'
+import type { FilaAuditoriaViva } from '@/lib/auditoriaVivo'
 import type { CierreDiarioAuditoria } from '@/types/database'
+
+export function exportAuditoriaVivoExcel(
+  rows: FilaAuditoriaViva[],
+  fechaEtiqueta: string,
+  etiquetaMoneda: (codigo: string) => string
+) {
+  const data = rows.map((r) => ({
+    Fecha: fechaEtiqueta,
+    Moneda: etiquetaMoneda(r.moneda),
+    'Cant. inicial': r.cantidadInicial,
+    'Prom. compra anterior': r.promedioAnterior,
+    'Cant. final': r.cantidadFinal,
+    'Prom. compra hoy': r.promedioCompraHoy,
+    'Prom. venta hoy': r.promedioVentaHoy,
+    'Ganancia (COP)': r.gananciaCop,
+  }))
+  const ws = XLSX.utils.json_to_sheet(
+    data.length ? data : [{ Fecha: fechaEtiqueta, Moneda: '—', 'Cant. inicial': 0 }]
+  )
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Auditoría día')
+  XLSX.writeFile(wb, `auditoria_dia_${fechaEtiqueta}.xlsx`)
+}
 
 export function exportCierresDiariosExcel(rows: CierreDiarioAuditoria[], fechaEtiqueta: string) {
   const data = rows.map((r) => ({

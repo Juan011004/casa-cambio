@@ -6,7 +6,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { dayBoundsLocal, formatCOP, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
 import { gananciaDiaPonderadaCop } from '@/lib/cierreAuditoria'
 import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '@/lib/ultimoCierre'
-import { exportCierresDiariosExcel } from '@/lib/exportCierresExcel'
+import { exportAuditoriaVivoExcel } from '@/lib/exportCierresExcel'
 import { obtenerTrmMercado } from '@/app/actions/trm'
 import { TRM_TICKER_ORDER, type TrmMercadoFila } from '@/lib/trm-ticker'
 import { CargaInicialDialog } from '@/components/CargaInicialDialog'
@@ -14,7 +14,7 @@ import { filasAuditoriaVivo, monedasParaAuditoria } from '@/lib/auditoriaVivo'
 import { montoDivisaEnCop, valorInventarioCop, saldoDeudasNetoCop } from '@/lib/balanceCop'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
-import type { CierreDiarioAuditoria, Transaccion } from '@/types/database'
+import type { Transaccion } from '@/types/database'
 import type { CopPorUnidad } from '@/lib/trm'
 
 const FLAGS: Record<string, string> = {
@@ -154,7 +154,6 @@ export default function DashboardPage() {
   const [ratesLoading, setRatesLoading] = useState(true)
   const [trmFilas, setTrmFilas] = useState<TrmMercadoFila[]>([])
   const [ultimaTrm, setUltimaTrm] = useState<string | null>(null)
-  const [cierresRows, setCierresRows] = useState<CierreDiarioAuditoria[]>([])
   const [cierresPrevRows, setCierresPrevRows] = useState<CierreRowParaArrastre[]>([])
   const [cargaInicialOpen, setCargaInicialOpen] = useState(false)
   const [invRows, setInvRows] = useState<{ divisa: string; cantidad_actual: number }[]>([])
@@ -178,7 +177,6 @@ export default function DashboardPage() {
 
     let debenQ = supabase.from('deudas').select('divisa,monto').eq('tipo', 'DEBEN').eq('estado', 'PENDIENTE')
     let deboQ = supabase.from('deudas').select('divisa,monto').eq('tipo', 'DEBO').eq('estado', 'PENDIENTE')
-    let cierresQ = supabase.from('cierres_diarios').select('*').eq('fecha', fechaDia)
     let cierresPrevQ = supabase
       .from('cierres_diarios')
       .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
@@ -189,18 +187,16 @@ export default function DashboardPage() {
     if (user?.id) {
       debenQ = debenQ.eq('usuario_id', user.id)
       deboQ = deboQ.eq('usuario_id', user.id)
-      cierresQ = cierresQ.eq('usuario_id', user.id)
       cierresPrevQ = cierresPrevQ.eq('usuario_id', user.id)
       invQ = invQ.eq('usuario_id', user.id)
       actQ = actQ.eq('usuario_id', user.id)
       gastosQ = gastosQ.eq('usuario_id', user.id)
     }
 
-    const [txRes, ndRes, dbRes, cRes, cPrevRes, invRes, actRes, gastRes] = await Promise.all([
+    const [txRes, ndRes, dbRes, cPrevRes, invRes, actRes, gastRes] = await Promise.all([
       txQuery,
       debenQ,
       deboQ,
-      cierresQ,
       cierresPrevQ,
       invQ,
       actQ,
@@ -220,7 +216,6 @@ export default function DashboardPage() {
         monto: Number((r as Record<string, unknown>).monto),
       }))
     )
-    setCierresRows((cRes.error ? [] : cRes.data) as CierreDiarioAuditoria[])
     setCierresPrevRows((cPrevRes.error ? [] : cPrevRes.data) as CierreRowParaArrastre[])
     setInvRows(
       (invRes.error ? [] : invRes.data ?? []) as { divisa: string; cantidad_actual: number }[]
@@ -366,53 +361,6 @@ export default function DashboardPage() {
         <TarjetaBalanceCop titulo="Tengo" valorCop={tengoCop} loading={balanceLoading} />
       </div>
 
-      <section className="mx-auto max-w-5xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
-        <div className="border-b border-slate-200 px-3 py-2 text-center sm:text-left">
-          <h2 className="text-sm font-bold">Auditoría del día (tiempo real)</h2>
-          <p className="text-[10px] text-slate-500">Fecha operativa: {fechaDia}</p>
-        </div>
-        {loading ? (
-          <p className="p-3 text-center text-sm text-slate-500">…</p>
-        ) : filasAuditVivo.length === 0 ? (
-          <p className="p-3 text-center text-sm text-slate-500">Sin divisas con saldo o movimiento para este día.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse text-center text-[11px]">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-100">
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Fecha</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Moneda</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Cant. inicial</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra ant.</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Cant. final</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra hoy</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. venta hoy</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Ganancia</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filasAuditVivo.map((row) => (
-                  <tr key={row.moneda} className="border-b border-slate-100">
-                    <td className="px-1.5 py-1.5 font-mono text-slate-800">{fechaDia}</td>
-                    <td className="px-1.5 py-1.5 text-left font-medium sm:text-center">{etiquetaMoneda(row.moneda)}</td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.cantidadInicial, 4)}</td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.promedioAnterior, 2)}</td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.cantidadFinal, 4)}</td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.promedioCompraHoy, 2)}</td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">
-                      {row.promedioVentaHoy > 1e-12 ? formatMilesEs(row.promedioVentaHoy, 2) : formatMilesEs(0, 2)}
-                    </td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums font-semibold text-slate-900">
-                      {Math.abs(row.gananciaCop) < 1e-6 ? formatMilesEs(0, 0) : formatCOP(row.gananciaCop)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
       <section className="rounded-xl border border-slate-200 bg-slate-50/90 p-3 shadow-md">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-xs font-bold uppercase tracking-wide text-slate-700">TRM</h2>
@@ -479,9 +427,12 @@ export default function DashboardPage() {
         )}
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
+      <section className="mx-auto max-w-5xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
-          <h2 className="text-sm font-bold">Cierres guardados</h2>
+          <div className="text-center sm:text-left">
+            <h2 className="text-sm font-bold">Auditoría del día (tiempo real)</h2>
+            <p className="text-[10px] text-slate-500">Fecha operativa: {fechaDia}</p>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -493,7 +444,7 @@ export default function DashboardPage() {
             </button>
             <button
               type="button"
-              onClick={() => exportCierresDiariosExcel(cierresRows, fechaDia)}
+              onClick={() => exportAuditoriaVivoExcel(filasAuditVivo, fechaDia, etiquetaMoneda)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-white"
             >
               <Download className="h-3.5 w-3.5" aria-hidden />
@@ -502,69 +453,41 @@ export default function DashboardPage() {
           </div>
         </div>
         {loading ? (
-          <p className="p-3 text-sm">…</p>
-        ) : cierresRows.length === 0 ? (
-          <p className="p-3 text-sm text-slate-500">—</p>
+          <p className="p-3 text-center text-sm text-slate-500">…</p>
+        ) : filasAuditVivo.length === 0 ? (
+          <p className="p-3 text-center text-sm text-slate-500">Sin divisas con saldo o movimiento para este día.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1520px] border-collapse text-center text-[10px]">
+            <table className="w-full min-w-[900px] border-collapse text-center text-[11px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
-                  <th className="sticky left-0 z-10 bg-slate-100 px-1.5 py-2 font-bold text-slate-700">Fecha</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Fecha</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Moneda</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Origen</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Cant. inicial</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. anterior</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Total comprado (COP)</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Nuevo prom. compra</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Total vendido (COP)</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. venta</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra ant.</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Cant. final</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra hoy</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. venta hoy</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Ganancia</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Estimado</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Manual</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Diferencia</th>
                 </tr>
               </thead>
               <tbody>
-                {cierresRows.map((r) => {
-                  const est = Number(r.cierre_estimado)
-                  const man = Number(r.cierre_manual)
-                  const delta = man - est
-                  const deltaClass = delta >= 0 ? 'text-blue-700' : 'text-red-700'
-                  const np = Number(r.promedio_compra_acumulado ?? r.promedio_compra ?? 0)
-                  const pv = Number(r.promedio_venta_dia ?? r.promedio_venta ?? 0)
-                  const pa = Number(r.promedio_anterior ?? 0)
-                  const tcp = Number(r.total_comprado_dia ?? 0)
-                  const tvp = Number(r.total_vendido_dia ?? 0)
-                  const origen = r.origen ?? 'OPERATIVO'
-                  return (
-                    <tr key={r.id} className="border-b border-slate-100">
-                      <td className="sticky left-0 z-10 bg-white px-1.5 py-1.5 font-mono text-slate-800">{r.fecha}</td>
-                      <td className="px-1.5 py-1.5 font-bold">{r.moneda}</td>
-                      <td className="px-1.5 py-1.5">
-                        {origen === 'CARGA_INICIAL' ? (
-                          <span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-950">
-                            Inicial
-                          </span>
-                        ) : (
-                          <span className="text-slate-500">Operativo</span>
-                        )}
-                      </td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(Number(r.apertura), 4)}</td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(pa, 2)}</td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatCOP(tcp)}</td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(np, 2)}</td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatCOP(tvp)}</td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(pv, 2)}</td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(Number(r.ganancia_calculada), 0)}</td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(est, 4)}</td>
-                      <td className="px-1.5 py-1.5 font-mono font-semibold tabular-nums">{formatMilesEs(man, 4)}</td>
-                      <td className={`px-1.5 py-1.5 font-mono font-bold tabular-nums ${deltaClass}`}>
-                        {formatMilesEs(delta, 4)}
-                      </td>
-                    </tr>
-                  )
-                })}
+                {filasAuditVivo.map((row) => (
+                  <tr key={row.moneda} className="border-b border-slate-100">
+                    <td className="px-1.5 py-1.5 font-mono text-slate-800">{fechaDia}</td>
+                    <td className="px-1.5 py-1.5 text-left font-medium sm:text-center">{etiquetaMoneda(row.moneda)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.cantidadInicial, 4)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.promedioAnterior, 2)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.cantidadFinal, 4)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.promedioCompraHoy, 2)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">
+                      {row.promedioVentaHoy > 1e-12 ? formatMilesEs(row.promedioVentaHoy, 2) : formatMilesEs(0, 2)}
+                    </td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums font-semibold text-slate-900">
+                      {Math.abs(row.gananciaCop) < 1e-6 ? formatMilesEs(0, 0) : formatCOP(row.gananciaCop)}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
