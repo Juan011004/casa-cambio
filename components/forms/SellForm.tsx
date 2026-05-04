@@ -85,10 +85,7 @@ export default function SellForm() {
         toast.error('No se registró la venta', { description: res.error })
         return
       }
-      const r = res.data
-      toast.success('Venta registrada', {
-        description: r ? formatCOP(r.total_cop) : formatCOP(totalCOP),
-      })
+      toast.success('Venta registrada')
       clearErrors()
       reset(
         { divisa: data.divisa, cantidad: '', precio: '', metodo_pago: 'Efectivo' },

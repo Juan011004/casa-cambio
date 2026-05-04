@@ -5,13 +5,27 @@ import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { guardarCajaDiaria, finalizarCierreCaja } from '@/app/actions/caja'
-import { addDaysYYYYMMDD, dayBoundsLocal, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
+import { dayBoundsLocal, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { errorMessage } from '@/lib/errorMessage'
 import type { Transaccion } from '@/types/database'
+import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '@/lib/ultimoCierre'
+
+const FLAGS: Record<string, string> = {
+  USD: '🇺🇸',
+  EUR: '🇪🇺',
+  GBP: '🇬🇧',
+  CAD: '🇨🇦',
+  BRL: '🇧🇷',
+  MXN: '🇲🇽',
+  CLP: '🇨🇱',
+  PEN: '🇵🇪',
+  ARS: '🇦🇷',
+  AUD: '🇦🇺',
+}
 
 function sumTxByMoneda(rows: Transaccion[], tipo: 'COMPRA' | 'VENTA'): Record<string, number> {
   const m: Record<string, number> = {}
@@ -78,9 +92,7 @@ export default function CajaPage() {
     }
 
     const { desde, hastaExclusive } = dayBoundsLocal(fecha)
-    const fechaAyer = addDaysYYYYMMDD(fecha, -1)
-
-    const [cajaRes, txRes, cierresAyerRes] = await Promise.all([
+    const [cajaRes, txRes, cierresPrevRes] = await Promise.all([
       supabase.from('caja_diaria').select('tipo,moneda,monto').eq('usuario_id', user.id).eq('fecha', fecha),
       supabase
         .from('transacciones')
@@ -90,9 +102,9 @@ export default function CajaPage() {
         .lt('fecha', hastaExclusive),
       supabase
         .from('cierres_diarios')
-        .select('moneda,cierre_manual')
+        .select('moneda,cierre_manual,fecha,promedio_compra,promedio_compra_acumulado')
         .eq('usuario_id', user.id)
-        .eq('fecha', fechaAyer),
+        .lt('fecha', fecha),
     ])
 
     const ap: Record<string, number> = {}
@@ -110,11 +122,9 @@ export default function CajaPage() {
     setVentasDia(sumTxByMoneda(txs, 'VENTA'))
 
     const ayer: Record<string, number> = {}
-    if (!cierresAyerRes.error) {
-      for (const r of cierresAyerRes.data ?? []) {
-        const row = r as { moneda: string; cierre_manual: number }
-        ayer[row.moneda] = Number(row.cierre_manual)
-      }
+    if (!cierresPrevRes.error) {
+      const fold = saldoPromedioPorMonedaDesdeCierres((cierresPrevRes.data ?? []) as CierreRowParaArrastre[])
+      for (const [mon, v] of Array.from(fold.entries())) ayer[mon] = v.saldoAnterior
     }
     setCierreAyerPorMoneda(ayer)
 
@@ -168,7 +178,7 @@ export default function CajaPage() {
       const manualStr = montosManualCierre[codigo] ?? ''
       const manualNum = parseFlexibleNumber(manualStr)
       const manualOk = manualStr.trim() !== '' && Number.isFinite(manualNum)
-      const diff = manualOk ? estimado - manualNum : null
+      const diff = manualOk ? manualNum - estimado : null
       return { codigo, estimado, manualStr, diff }
     })
   }, [codigos, montosApertura, aperturaMap, comprasDia, ventasDia, montosManualCierre])
@@ -227,7 +237,7 @@ export default function CajaPage() {
             <table className="w-full border-collapse text-center text-[12px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
-                  <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Moneda</th>
+                  <th className="border-r border-slate-200 px-2 py-2 text-left font-bold text-slate-800">Moneda</th>
                   <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Apertura</th>
                   <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Cierre est.</th>
                   <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Cierre manual</th>
@@ -244,7 +254,17 @@ export default function CajaPage() {
                         : 'text-red-700'
                   return (
                     <tr key={f.codigo} className="border-b border-slate-100">
-                      <td className="border-r border-slate-100 px-2 py-2 align-middle font-bold">{f.codigo}</td>
+                      <td className="border-r border-slate-100 px-2 py-2 text-left align-middle">
+                        <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800">
+                          <span className="text-base leading-none" aria-hidden>
+                            {FLAGS[f.codigo] ?? '💱'}
+                          </span>
+                          <span>
+                            {divisas.find((d) => d.codigo === f.codigo)?.nombre_completo ?? f.codigo}{' '}
+                            <span className="font-mono text-slate-600">({f.codigo})</span>
+                          </span>
+                        </span>
+                      </td>
                       <td className="border-r border-slate-100 px-2 py-1.5 align-middle">
                         <MoneyTextField
                           id={`ap-${f.codigo}`}

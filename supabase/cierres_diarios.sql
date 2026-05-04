@@ -15,6 +15,7 @@ CREATE TABLE public.cierres_diarios (
     cierre_estimado NUMERIC(15, 2) NOT NULL DEFAULT 0,
     ganancia_calculada NUMERIC(15, 2) NOT NULL DEFAULT 0,
     promedio_compra NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    promedio_compra_acumulado NUMERIC(15, 2) NOT NULL DEFAULT 0,
     promedio_venta NUMERIC(15, 2) NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (usuario_id, fecha, moneda)
@@ -38,3 +39,17 @@ CREATE POLICY "Usuarios pueden editar sus propias transacciones"
   TO authenticated
   USING (auth.uid() = usuario_id)
   WITH CHECK (auth.uid() = usuario_id);
+
+CREATE OR REPLACE VIEW public.vista_ultimo_cierre AS
+SELECT DISTINCT ON (usuario_id, moneda)
+    usuario_id,
+    moneda,
+    fecha,
+    cierre_manual AS saldo_anterior,
+    promedio_compra AS promedio_anterior
+FROM public.cierres_diarios
+ORDER BY usuario_id, moneda, fecha DESC;
+
+ALTER VIEW public.vista_ultimo_cierre SET (security_invoker = true);
+
+GRANT SELECT ON public.vista_ultimo_cierre TO authenticated;

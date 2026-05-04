@@ -3,6 +3,7 @@ import {
   agregarCompraVentaPorMoneda,
   cierreEstimadoSimple,
   gananciaDiaPonderadaCop,
+  promedioCompraConArrastre,
 } from '@/lib/cierreAuditoria'
 import type { Transaccion } from '@/types/database'
 
@@ -26,6 +27,14 @@ describe('cierreAuditoria', () => {
       { moneda: 'USD', tipo: 'COMPRA' as const, monto_divisa: 100, tasa_aplicada: 4000 },
       { moneda: 'USD', tipo: 'VENTA' as const, monto_divisa: 50, tasa_aplicada: 4200 },
     ] as Transaccion[]
-    expect(gananciaDiaPonderadaCop(txs, 'USD')).toBeCloseTo(50 * (4200 - 4000), 4)
+    expect(gananciaDiaPonderadaCop(txs, 'USD', 0, 0)).toBeCloseTo(50 * (4200 - 4000), 4)
+  })
+
+  it('promedio compra con arrastre y venta sin compras hoy', () => {
+    const txs = [
+      { moneda: 'USD', tipo: 'VENTA' as const, monto_divisa: 50, tasa_aplicada: 4200 },
+    ] as Transaccion[]
+    expect(promedioCompraConArrastre(txs, 'USD', 100, 4000)).toBeCloseTo(4000, 4)
+    expect(gananciaDiaPonderadaCop(txs, 'USD', 100, 4000)).toBeCloseTo(50 * (4200 - 4000), 4)
   })
 })

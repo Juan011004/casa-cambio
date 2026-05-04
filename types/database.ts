@@ -76,6 +76,8 @@ export interface CierreDiarioAuditoria {
   cierre_estimado: number
   ganancia_calculada: number
   promedio_compra: number
+  /** WAC guardado al cierre; puede faltar en datos previos al ALTER. */
+  promedio_compra_acumulado?: number
   promedio_venta: number
   created_at: string
 }

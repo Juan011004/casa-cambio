@@ -5,6 +5,7 @@ import { Download } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { dayBoundsLocal, formatCOP, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
 import { gananciaDiaPonderadaCop } from '@/lib/cierreAuditoria'
+import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '@/lib/ultimoCierre'
 import { exportCierresDiariosExcel } from '@/lib/exportCierresExcel'
 import { obtenerTrmMercado } from '@/app/actions/trm'
 import { TRM_TICKER_ORDER, type TrmMercadoFila } from '@/lib/trm-ticker'
@@ -47,12 +48,16 @@ function sumTxMontoDivisa(rows: Transaccion[], tipo: 'COMPRA' | 'VENTA'): { codi
     .map(([codigo, valor]) => ({ codigo, valor }))
 }
 
-function gananciaListaDesdeTx(rows: Transaccion[]): { codigo: string; valor: number }[] {
+function gananciaListaDesdeTx(
+  rows: Transaccion[],
+  prevPorMoneda: Map<string, { saldoAnterior: number; promedioAnterior: number }>
+): { codigo: string; valor: number }[] {
   const codes = new Set<string>()
   for (const r of rows) codes.add(r.moneda)
   const out: { codigo: string; valor: number }[] = []
   for (const codigo of Array.from(codes).sort()) {
-    const g = gananciaDiaPonderadaCop(rows, codigo)
+    const p = prevPorMoneda.get(codigo) ?? { saldoAnterior: 0, promedioAnterior: 0 }
+    const g = gananciaDiaPonderadaCop(rows, codigo, p.saldoAnterior, p.promedioAnterior)
     if (Math.abs(g) > 1e-6) out.push({ codigo, valor: g })
   }
   return out
@@ -70,46 +75,42 @@ function sumDeudasPendientes(rows: { divisa: string; monto: number }[]): { codig
     .map(([codigo, valor]) => ({ codigo, valor }))
 }
 
-function ListaDivisaCompacta({ items, dec = 4 }: { items: { codigo: string; valor: number }[]; dec?: number }) {
-  if (!items.length) return <p className="mt-2 text-center text-sm font-medium text-black/40">—</p>
-  return (
-    <ul className="mt-3 max-h-28 space-y-1 overflow-y-auto text-center">
-      {items.map((x) => (
-        <li key={x.codigo} className="flex justify-center gap-3 font-mono text-sm tabular-nums text-black/85">
-          <span className="font-bold">{x.codigo}</span>
-          <span>{formatMilesEs(x.valor, dec)}</span>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-function TarjetaHero({
+function TarjetaCompacta({
   titulo,
-  valorGrande,
   items,
   decItems = 4,
-  gradient,
-  pie,
+  accent,
 }: {
   titulo: string
-  valorGrande: string
   items: { codigo: string; valor: number }[]
   decItems?: number
-  gradient: string
-  pie?: string
+  accent: 'emerald' | 'rose' | 'sky' | 'violet'
 }) {
+  const bar =
+    accent === 'emerald'
+      ? 'border-l-emerald-500'
+      : accent === 'rose'
+        ? 'border-l-rose-500'
+        : accent === 'sky'
+          ? 'border-l-sky-500'
+          : 'border-l-violet-500'
   return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border-2 p-5 shadow-xl ${gradient}`}
-    >
-      <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/25 blur-2xl" />
-      <h2 className="text-center text-xs font-bold uppercase tracking-[0.2em] text-black/55">{titulo}</h2>
-      <p className="mt-3 text-center text-5xl font-black leading-none tracking-tight text-black tabular-nums sm:text-6xl">
-        {valorGrande}
-      </p>
-      {pie ? <p className="mt-1 text-center text-[10px] font-semibold uppercase text-black/45">{pie}</p> : null}
-      <ListaDivisaCompacta items={items} dec={decItems} />
+    <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
+      <div className="min-h-[5.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
+        <h2 className="text-[10px] font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
+        {!items.length ? (
+          <p className="mt-2 text-[11px] text-slate-400">—</p>
+        ) : (
+          <ul className="mt-1 max-h-20 space-y-0.5 overflow-y-auto">
+            {items.map((x) => (
+              <li key={x.codigo} className="flex justify-between gap-2 font-mono text-[11px] tabular-nums text-slate-800">
+                <span className="font-semibold">{x.codigo}</span>
+                <span>{formatMilesEs(x.valor, decItems)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   )
 }
@@ -126,6 +127,7 @@ export default function DashboardPage() {
   const [trmFilas, setTrmFilas] = useState<TrmMercadoFila[]>([])
   const [ultimaTrm, setUltimaTrm] = useState<string | null>(null)
   const [cierresRows, setCierresRows] = useState<CierreDiarioAuditoria[]>([])
+  const [cierresPrevRows, setCierresPrevRows] = useState<CierreRowParaArrastre[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -145,13 +147,18 @@ export default function DashboardPage() {
     let debenQ = supabase.from('deudas').select('divisa,monto').eq('tipo', 'DEBEN').eq('estado', 'PENDIENTE')
     let deboQ = supabase.from('deudas').select('divisa,monto').eq('tipo', 'DEBO').eq('estado', 'PENDIENTE')
     let cierresQ = supabase.from('cierres_diarios').select('*').eq('fecha', fechaDia)
+    let cierresPrevQ = supabase
+      .from('cierres_diarios')
+      .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
+      .lt('fecha', fechaDia)
     if (user?.id) {
       debenQ = debenQ.eq('usuario_id', user.id)
       deboQ = deboQ.eq('usuario_id', user.id)
       cierresQ = cierresQ.eq('usuario_id', user.id)
+      cierresPrevQ = cierresPrevQ.eq('usuario_id', user.id)
     }
 
-    const [txRes, ndRes, dbRes, cRes] = await Promise.all([txQuery, debenQ, deboQ, cierresQ])
+    const [txRes, ndRes, dbRes, cRes, cPrevRes] = await Promise.all([txQuery, debenQ, deboQ, cierresQ, cierresPrevQ])
 
     setTxRows((txRes.data ?? []) as Transaccion[])
     setDebenRows(
@@ -167,6 +174,7 @@ export default function DashboardPage() {
       }))
     )
     setCierresRows((cRes.error ? [] : cRes.data) as CierreDiarioAuditoria[])
+    setCierresPrevRows((cPrevRes.error ? [] : cPrevRes.data) as CierreRowParaArrastre[])
     setLoading(false)
   }, [supabase, fechaDia])
 
@@ -192,24 +200,14 @@ export default function DashboardPage() {
 
   const comprasLista = useMemo(() => sumTxMontoDivisa(txRows, 'COMPRA'), [txRows])
   const ventasLista = useMemo(() => sumTxMontoDivisa(txRows, 'VENTA'), [txRows])
-  const gananciaLista = useMemo(() => gananciaListaDesdeTx(txRows), [txRows])
+  const ultimoCierrePorMoneda = useMemo(() => saldoPromedioPorMonedaDesdeCierres(cierresPrevRows), [cierresPrevRows])
+
+  const gananciaLista = useMemo(
+    () => gananciaListaDesdeTx(txRows, ultimoCierrePorMoneda),
+    [txRows, ultimoCierrePorMoneda]
+  )
   const nosDebenLista = useMemo(() => sumDeudasPendientes(debenRows), [debenRows])
   const debemosLista = useMemo(() => sumDeudasPendientes(deboRows), [deboRows])
-
-  const totalComprasCop = useMemo(
-    () => txRows.filter((t) => t.tipo === 'COMPRA').reduce((s, t) => s + Number(t.total_cop), 0),
-    [txRows]
-  )
-  const totalVentasCop = useMemo(
-    () => txRows.filter((t) => t.tipo === 'VENTA').reduce((s, t) => s + Number(t.total_cop), 0),
-    [txRows]
-  )
-  const totalGananciaCop = useMemo(() => {
-    const codes = Array.from(new Set(txRows.map((t) => t.moneda)))
-    let s = 0
-    for (const c of codes) s += gananciaDiaPonderadaCop(txRows, c)
-    return s
-  }, [txRows])
 
   const copMap = rates ?? {
     USD: 0,
@@ -234,12 +232,6 @@ export default function DashboardPage() {
 
   const recientes = useMemo(() => txRows.slice(0, 10), [txRows])
 
-  const heroCompra = loading ? '…' : formatCOP(totalComprasCop)
-  const heroVenta = loading ? '…' : formatCOP(totalVentasCop)
-  const heroGanancia = loading ? '…' : formatMilesEs(totalGananciaCop, 0)
-  const heroDeben = loading ? '…' : String(nosDebenLista.length)
-  const heroDebo = loading ? '…' : String(debemosLista.length)
-
   return (
     <main className="space-y-5 text-[13px] text-black">
       <div className="flex flex-wrap items-end justify-between gap-2">
@@ -252,40 +244,12 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <TarjetaHero
-          titulo="Compra"
-          valorGrande={heroCompra}
-          items={loading ? [] : comprasLista}
-          gradient="border-sky-300/80 bg-gradient-to-br from-sky-50 via-white to-sky-100/90"
-        />
-        <TarjetaHero
-          titulo="Venta"
-          valorGrande={heroVenta}
-          items={loading ? [] : ventasLista}
-          gradient="border-amber-300/80 bg-gradient-to-br from-amber-50 via-white to-amber-100/90"
-        />
-        <TarjetaHero
-          titulo="Ganancia"
-          valorGrande={heroGanancia}
-          items={loading ? [] : gananciaLista}
-          decItems={0}
-          gradient="border-emerald-400/70 bg-gradient-to-br from-emerald-50 via-white to-emerald-100/90"
-        />
-        <TarjetaHero
-          titulo="Me deben"
-          valorGrande={heroDeben}
-          items={loading ? [] : nosDebenLista}
-          pie="Posiciones con saldo"
-          gradient="border-violet-300/80 bg-gradient-to-br from-violet-50 via-white to-violet-100/90"
-        />
-        <TarjetaHero
-          titulo="Debo"
-          valorGrande={heroDebo}
-          items={loading ? [] : debemosLista}
-          pie="Posiciones con saldo"
-          gradient="border-rose-300/80 bg-gradient-to-br from-rose-50 via-white to-rose-100/90"
-        />
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <TarjetaCompacta titulo="Compra" items={loading ? [] : comprasLista} accent="sky" />
+        <TarjetaCompacta titulo="Venta" items={loading ? [] : ventasLista} accent="rose" />
+        <TarjetaCompacta titulo="Ganancia" items={loading ? [] : gananciaLista} decItems={0} accent="emerald" />
+        <TarjetaCompacta titulo="Me deben" items={loading ? [] : nosDebenLista} accent="violet" />
+        <TarjetaCompacta titulo="Debo" items={loading ? [] : debemosLista} accent="rose" />
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-slate-50/90 p-3 shadow-md">
@@ -372,13 +336,14 @@ export default function DashboardPage() {
           <p className="p-3 text-sm text-slate-500">—</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[960px] border-collapse text-center text-[11px]">
+            <table className="w-full min-w-[1040px] border-collapse text-center text-[11px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
                   <th className="px-2 py-2 font-bold text-slate-700">Fecha</th>
                   <th className="px-2 py-2 font-bold text-slate-700">Moneda</th>
                   <th className="px-2 py-2 font-bold text-slate-700">Apertura</th>
-                  <th className="px-2 py-2 font-bold text-slate-700">Promedio compra</th>
+                  <th className="px-2 py-2 font-bold text-slate-700">Prom. compra (WAC)</th>
+                  <th className="px-2 py-2 font-bold text-slate-700">Prom. acum.</th>
                   <th className="px-2 py-2 font-bold text-slate-700">Promedio venta</th>
                   <th className="px-2 py-2 font-bold text-slate-700">Estimado</th>
                   <th className="px-2 py-2 font-bold text-slate-700">Manual</th>
@@ -389,9 +354,10 @@ export default function DashboardPage() {
                 {cierresRows.map((r) => {
                   const est = Number(r.cierre_estimado)
                   const man = Number(r.cierre_manual)
-                  const delta = est - man
+                  const delta = man - est
                   const deltaClass = delta >= 0 ? 'text-blue-700' : 'text-red-700'
                   const pc = Number(r.promedio_compra ?? 0)
+                  const pca = Number(r.promedio_compra_acumulado ?? r.promedio_compra ?? 0)
                   const pv = Number(r.promedio_venta ?? 0)
                   return (
                     <tr key={r.id} className="border-b border-slate-100">
@@ -399,6 +365,7 @@ export default function DashboardPage() {
                       <td className="px-2 py-1.5 font-bold">{r.moneda}</td>
                       <td className="px-2 py-1.5 font-mono tabular-nums">{formatMilesEs(Number(r.apertura), 2)}</td>
                       <td className="px-2 py-1.5 font-mono tabular-nums">{formatMilesEs(pc, 2)}</td>
+                      <td className="px-2 py-1.5 font-mono tabular-nums">{formatMilesEs(pca, 2)}</td>
                       <td className="px-2 py-1.5 font-mono tabular-nums">{formatMilesEs(pv, 2)}</td>
                       <td className="px-2 py-1.5 font-mono tabular-nums">{formatMilesEs(est, 2)}</td>
                       <td className="px-2 py-1.5 font-mono font-semibold tabular-nums">{formatMilesEs(man, 2)}</td>

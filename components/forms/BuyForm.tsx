@@ -6,10 +6,10 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Loader2, Calculator } from 'lucide-react'
 import { toast } from 'sonner'
-import { formatCOP } from '@/lib/utils'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { totalCopFromTasa } from '@/lib/pricing'
 import { registrarCompra } from '@/app/actions/transactions'
+import { formatCOP } from '@/lib/utils'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { errorMessage } from '@/lib/errorMessage'
@@ -85,7 +85,7 @@ export default function BuyForm() {
         toast.error('No se registró la compra', { description: res.error })
         return
       }
-      toast.success('Compra registrada', { description: formatCOP(res.data?.total_cop ?? totalCOP) })
+      toast.success('Compra registrada')
       clearErrors()
       reset(
         { divisa: data.divisa, cantidad: '', precio: '', metodo_pago: 'Efectivo' },

@@ -7,7 +7,13 @@ import type { ActionResult, Transaccion } from '@/types/database'
 import { cajaGuardarSchema, finalizarCierreSchema } from '@/lib/validation/schemas'
 import { logServerError } from '@/lib/server/server-log'
 import { dayBoundsLocal } from '@/lib/utils'
-import { agregarCompraVentaPorMoneda, cierreEstimadoSimple, gananciaDiaPonderadaCop } from '@/lib/cierreAuditoria'
+import {
+  agregarCompraVentaPorMoneda,
+  cierreEstimadoSimple,
+  gananciaDiaPonderadaCop,
+  promedioCompraConArrastre,
+} from '@/lib/cierreAuditoria'
+import { saldoPromedioPorMonedaDesdeCierres } from '@/lib/ultimoCierre'
 import type { Database } from '@/database'
 
 type CierreInsert = Database['public']['Tables']['cierres_diarios']['Insert']
@@ -105,7 +111,7 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
     const { fecha, manualCierre, aperturas } = parsed.data
     const { desde, hastaExclusive } = dayBoundsLocal(fecha)
 
-    const [txRes, cajaDiaRes] = await Promise.all([
+    const [txRes, cajaDiaRes, prevCierresRes] = await Promise.all([
       supabase
         .from('transacciones')
         .select('*')
@@ -113,6 +119,11 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
         .gte('fecha', desde)
         .lt('fecha', hastaExclusive),
       supabase.from('caja_diaria').select('tipo,moneda,monto').eq('usuario_id', user.id).eq('fecha', fecha),
+      supabase
+        .from('cierres_diarios')
+        .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
+        .eq('usuario_id', user.id)
+        .lt('fecha', fecha),
     ])
 
     if (txRes.error) {
@@ -123,8 +134,13 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
       logServerError('finalizarCierreCaja/cajaDia', new Error(cajaDiaRes.error.message))
       return { ok: false, error: 'No se pudo leer la caja del día.' }
     }
+    if (prevCierresRes.error) {
+      logServerError('finalizarCierreCaja/prevCierres', new Error(prevCierresRes.error.message))
+      return { ok: false, error: 'No se pudieron leer los cierres anteriores.' }
+    }
 
     const txs = (txRes.data ?? []) as Transaccion[]
+    const prevPorMoneda = saldoPromedioPorMonedaDesdeCierres(prevCierresRes.data ?? [])
     const aperturaCajaMap = mapAperturaCaja((cajaDiaRes.data ?? []) as { tipo: string; moneda: string; monto: number }[])
 
     const manualEntries = Object.entries(manualCierre).filter(([, m]) => Number.isFinite(m))
@@ -133,14 +149,11 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
     for (const [monedaRaw, cierreManual] of manualEntries) {
       const moneda = monedaRaw.toUpperCase()
       const aperturaSnap = aperturas?.[moneda] ?? aperturaCajaMap[moneda] ?? 0
-      const {
-        totalCompraMonto,
-        totalVentaMonto,
-        promedioCompraDia,
-        promedioVentaDia,
-      } = agregarCompraVentaPorMoneda(txs, moneda)
+      const { totalCompraMonto, totalVentaMonto, promedioVentaDia } = agregarCompraVentaPorMoneda(txs, moneda)
+      const prev = prevPorMoneda.get(moneda) ?? { saldoAnterior: 0, promedioAnterior: 0 }
+      const wacCompra = promedioCompraConArrastre(txs, moneda, prev.saldoAnterior, prev.promedioAnterior)
       const cierreEstimado = cierreEstimadoSimple(aperturaSnap, totalCompraMonto, totalVentaMonto)
-      const gananciaCalculada = gananciaDiaPonderadaCop(txs, moneda)
+      const gananciaCalculada = gananciaDiaPonderadaCop(txs, moneda, prev.saldoAnterior, prev.promedioAnterior)
 
       auditoriaRows.push({
         usuario_id: user.id,
@@ -150,7 +163,8 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
         cierre_manual: cierreManual,
         cierre_estimado: cierreEstimado,
         ganancia_calculada: gananciaCalculada,
-        promedio_compra: promedioCompraDia,
+        promedio_compra: wacCompra,
+        promedio_compra_acumulado: wacCompra,
         promedio_venta: promedioVentaDia,
       })
     }

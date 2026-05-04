@@ -156,6 +156,7 @@ export interface Database {
           cierre_estimado: number
           ganancia_calculada: number
           promedio_compra: number
+          promedio_compra_acumulado: number
           promedio_venta: number
           created_at: string
         }
@@ -169,6 +170,7 @@ export interface Database {
           cierre_estimado?: number
           ganancia_calculada?: number
           promedio_compra?: number
+          promedio_compra_acumulado?: number
           promedio_venta?: number
           created_at?: string
         }
@@ -178,6 +180,7 @@ export interface Database {
           cierre_estimado?: number
           ganancia_calculada?: number
           promedio_compra?: number
+          promedio_compra_acumulado?: number
           promedio_venta?: number
         }
         Relationships: []
