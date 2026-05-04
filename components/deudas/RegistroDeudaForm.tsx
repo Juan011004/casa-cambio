@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
-import { Check, Loader2 } from 'lucide-react'
+import { Check, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { registrarDeuda, saldarDeuda } from '@/app/actions/deudas'
+import { registrarDeuda, abonarDeuda } from '@/app/actions/deudas'
 import { errorMessage } from '@/lib/errorMessage'
 import type { EstadoDeuda, RegistroDeuda } from '@/types/database'
 import { formatMoneyDivisa, formatMilesEs } from '@/lib/utils'
@@ -30,7 +30,9 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
   const [loading, setLoading] = useState(false)
   const [lista, setLista] = useState<RegistroDeuda[]>([])
   const [cargandoLista, setCargandoLista] = useState(true)
-  const [saldandoId, setSaldandoId] = useState<string | null>(null)
+  const [abonandoId, setAbonandoId] = useState<string | null>(null)
+  const [modalId, setModalId] = useState<string | null>(null)
+  const [abonoStr, setAbonoStr] = useState('')
 
   const cargar = useCallback(async () => {
     setCargandoLista(true)
@@ -78,6 +80,8 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
     return m
   }, [lista])
 
+  const filaModal = useMemo(() => lista.find((x) => x.id === modalId) ?? null, [lista, modalId])
+
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -108,20 +112,42 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
     }
   }
 
-  const saldar = async (id: string) => {
-    setSaldandoId(id)
+  const abrirAbono = (id: string) => {
+    const row = lista.find((x) => x.id === id)
+    setModalId(id)
+    setAbonoStr(row ? formatMilesEs(row.monto, 4) : '')
+  }
+
+  const cerrarModal = () => {
+    setModalId(null)
+    setAbonoStr('')
+  }
+
+  const confirmarAbono = async () => {
+    if (!filaModal) return
+    const n = parseFlexibleNumber(abonoStr)
+    if (!Number.isFinite(n) || n <= 0) {
+      toast.error('Indique un abono válido.')
+      return
+    }
+    if (n > filaModal.monto + 1e-9) {
+      toast.error('El abono supera el saldo.')
+      return
+    }
+    setAbonandoId(filaModal.id)
     try {
-      const res = await saldarDeuda({ id: id })
+      const res = await abonarDeuda({ id: filaModal.id, monto_abono: n })
       if (!res.ok) {
         toast.error(res.error)
         return
       }
-      toast.success('Marcado como saldado')
+      toast.success(n >= filaModal.monto - 1e-9 ? 'Saldado' : 'Abono registrado')
+      cerrarModal()
       await cargar()
     } catch (err: unknown) {
       toast.error(errorMessage(err))
     } finally {
-      setSaldandoId(null)
+      setAbonandoId(null)
     }
   }
 
@@ -169,7 +195,7 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
       </form>
 
       <section className="card-pro overflow-hidden p-0">
-        <h2 className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-black">Pendientes · saldar</h2>
+        <h2 className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-black">Pendientes · abonar</h2>
         {cargandoLista ? (
           <p className="p-3 text-xs text-slate-600">Cargando…</p>
         ) : lista.length === 0 ? (
@@ -181,9 +207,9 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
                 <tr className="border-b border-slate-100 bg-slate-50">
                   <th className="table-header max-w-[140px] text-left">{etiquetaPersona}</th>
                   <th className="table-header text-left">Divisa</th>
-                  <th className="table-header text-right">Monto</th>
+                  <th className="table-header text-right">Pendiente</th>
                   <th className="table-header text-left">Fecha</th>
-                  <th className="table-header w-24">Saldar</th>
+                  <th className="table-header w-24">Abonar</th>
                 </tr>
               </thead>
               <tbody>
@@ -198,16 +224,12 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
                     <td className="table-cell">
                       <button
                         type="button"
-                        title="Saldar"
-                        disabled={saldandoId === r.id}
-                        onClick={() => void saldar(r.id)}
+                        title="Abonar"
+                        disabled={abonandoId === r.id}
+                        onClick={() => abrirAbono(r.id)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
                       >
-                        {saldandoId === r.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Check className="h-4 w-4" strokeWidth={2.5} />
-                        )}
+                        {abonandoId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" strokeWidth={2.5} />}
                       </button>
                     </td>
                   </tr>
@@ -231,6 +253,58 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
           </div>
         ) : null}
       </section>
+
+      {modalId && filaModal ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(ev) => {
+            if (ev.target === ev.currentTarget) cerrarModal()
+          }}
+        >
+          <div className="relative w-full max-w-sm rounded-xl border border-slate-200 bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={cerrarModal}
+              className="absolute right-2 top-2 rounded-lg p-1 text-slate-500 hover:bg-slate-100"
+              aria-label="Cerrar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <h3 className="pr-8 text-sm font-bold text-slate-900">Abonar deuda</h3>
+            <p className="mt-2 text-xs text-slate-600">
+              Saldo pendiente:{' '}
+              <span className="font-mono font-semibold text-slate-900">
+                {formatMoneyDivisa(filaModal.monto, filaModal.divisa)}
+              </span>
+            </p>
+            <div className="mt-3">
+              <MoneyTextField
+                id="abono-monto"
+                label={`Abono (${filaModal.divisa})`}
+                maxFrac={4}
+                value={abonoStr}
+                onChange={setAbonoStr}
+                inputClassName="input-field input-numeric min-h-[40px]"
+              />
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={cerrarModal} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={abonandoId !== null}
+                onClick={() => void confirmarAbono()}
+                className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {abonandoId ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

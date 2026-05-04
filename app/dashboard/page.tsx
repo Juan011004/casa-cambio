@@ -10,6 +10,7 @@ import { exportCierresDiariosExcel } from '@/lib/exportCierresExcel'
 import { obtenerTrmMercado } from '@/app/actions/trm'
 import { TRM_TICKER_ORDER, type TrmMercadoFila } from '@/lib/trm-ticker'
 import { CargaInicialDialog } from '@/components/CargaInicialDialog'
+import { valorCierresManualCop, valorInventarioCop, saldoDeudasNetoCop } from '@/lib/balanceCop'
 import type { CierreDiarioAuditoria, Transaccion } from '@/types/database'
 import type { CopPorUnidad } from '@/lib/trm'
 
@@ -76,6 +77,27 @@ function sumDeudasPendientes(rows: { divisa: string; monto: number }[]): { codig
     .map(([codigo, valor]) => ({ codigo, valor }))
 }
 
+function TarjetaBalanceCop({
+  titulo,
+  valorCop,
+  loading: ld,
+}: {
+  titulo: string
+  valorCop: number
+  loading: boolean
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm border-l-[4px] border-l-blue-600">
+      <div className="min-h-[4.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
+        <h2 className="text-[10px] font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
+        <p className="mt-1 font-mono text-sm font-bold tabular-nums text-slate-900">
+          {ld ? '…' : formatCOP(valorCop)}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function TarjetaCompacta({
   titulo,
   items,
@@ -130,6 +152,8 @@ export default function DashboardPage() {
   const [cierresRows, setCierresRows] = useState<CierreDiarioAuditoria[]>([])
   const [cierresPrevRows, setCierresPrevRows] = useState<CierreRowParaArrastre[]>([])
   const [cargaInicialOpen, setCargaInicialOpen] = useState(false)
+  const [invRows, setInvRows] = useState<{ divisa: string; cantidad_actual: number }[]>([])
+  const [activosTotalCop, setActivosTotalCop] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -153,14 +177,26 @@ export default function DashboardPage() {
       .from('cierres_diarios')
       .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
       .lt('fecha', fechaDia)
+    let invQ = supabase.from('inventario').select('divisa,cantidad_actual')
+    let actQ = supabase.from('activos').select('valor_cop')
     if (user?.id) {
       debenQ = debenQ.eq('usuario_id', user.id)
       deboQ = deboQ.eq('usuario_id', user.id)
       cierresQ = cierresQ.eq('usuario_id', user.id)
       cierresPrevQ = cierresPrevQ.eq('usuario_id', user.id)
+      invQ = invQ.eq('usuario_id', user.id)
+      actQ = actQ.eq('usuario_id', user.id)
     }
 
-    const [txRes, ndRes, dbRes, cRes, cPrevRes] = await Promise.all([txQuery, debenQ, deboQ, cierresQ, cierresPrevQ])
+    const [txRes, ndRes, dbRes, cRes, cPrevRes, invRes, actRes] = await Promise.all([
+      txQuery,
+      debenQ,
+      deboQ,
+      cierresQ,
+      cierresPrevQ,
+      invQ,
+      actQ,
+    ])
 
     setTxRows((txRes.data ?? []) as Transaccion[])
     setDebenRows(
@@ -177,6 +213,14 @@ export default function DashboardPage() {
     )
     setCierresRows((cRes.error ? [] : cRes.data) as CierreDiarioAuditoria[])
     setCierresPrevRows((cPrevRes.error ? [] : cPrevRes.data) as CierreRowParaArrastre[])
+    setInvRows(
+      (invRes.error ? [] : invRes.data ?? []) as { divisa: string; cantidad_actual: number }[]
+    )
+    setActivosTotalCop(
+      actRes.error
+        ? 0
+        : (actRes.data ?? []).reduce((s, r) => s + Number((r as { valor_cop: number }).valor_cop), 0)
+    )
     setLoading(false)
   }, [supabase, fechaDia])
 
@@ -211,20 +255,38 @@ export default function DashboardPage() {
   const nosDebenLista = useMemo(() => sumDeudasPendientes(debenRows), [debenRows])
   const debemosLista = useMemo(() => sumDeudasPendientes(deboRows), [deboRows])
 
-  const copMap = rates ?? {
-    USD: 0,
-    EUR: 0,
-    GBP: 0,
-    BRL: 0,
-    MXN: 0,
-    CAD: 0,
-    CLP: 0,
-    PEN: 0,
-    ARS: 0,
-    AUD: 0,
-    COP: 1,
-    OTRO: 0,
-  }
+  const copMap = useMemo<CopPorUnidad>(
+    () =>
+      rates ?? {
+        USD: 0,
+        EUR: 0,
+        GBP: 0,
+        BRL: 0,
+        MXN: 0,
+        CAD: 0,
+        CLP: 0,
+        PEN: 0,
+        ARS: 0,
+        AUD: 0,
+        COP: 1,
+        OTRO: 0,
+      },
+    [rates]
+  )
+
+  const balanceLoading = loading || ratesLoading
+
+  const deboTenerCop = useMemo(() => {
+    return (
+      valorInventarioCop(invRows, copMap) +
+      saldoDeudasNetoCop(debenRows, deboRows, copMap) +
+      activosTotalCop
+    )
+  }, [invRows, debenRows, deboRows, activosTotalCop, copMap])
+
+  const tengoCop = useMemo(() => {
+    return valorCierresManualCop(cierresRows, copMap) + activosTotalCop
+  }, [cierresRows, activosTotalCop, copMap])
 
   const filasPorCodigo = useMemo(() => {
     const m = new Map<string, TrmMercadoFila>()
@@ -252,6 +314,11 @@ export default function DashboardPage() {
         <TarjetaCompacta titulo="Ganancia" items={loading ? [] : gananciaLista} decItems={0} accent="emerald" />
         <TarjetaCompacta titulo="Me deben" items={loading ? [] : nosDebenLista} accent="violet" />
         <TarjetaCompacta titulo="Debo" items={loading ? [] : debemosLista} accent="rose" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <TarjetaBalanceCop titulo="Debo tener" valorCop={deboTenerCop} loading={balanceLoading} />
+        <TarjetaBalanceCop titulo="Tengo" valorCop={tengoCop} loading={balanceLoading} />
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-slate-50/90 p-3 shadow-md">
@@ -356,9 +423,9 @@ export default function DashboardPage() {
                   <th className="px-1.5 py-2 font-bold text-slate-700">Origen</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Cant. inicial</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Prom. anterior</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Total comprado</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Total comprado (COP)</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Nuevo prom. compra</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Total vendido</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Total vendido (COP)</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Prom. venta</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Ganancia</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Estimado</th>
@@ -373,10 +440,10 @@ export default function DashboardPage() {
                   const delta = man - est
                   const deltaClass = delta >= 0 ? 'text-blue-700' : 'text-red-700'
                   const np = Number(r.promedio_compra_acumulado ?? r.promedio_compra ?? 0)
-                  const pv = Number(r.promedio_venta ?? 0)
+                  const pv = Number(r.promedio_venta_dia ?? r.promedio_venta ?? 0)
                   const pa = Number(r.promedio_anterior ?? 0)
-                  const tc = Number(r.total_comprado_divisa ?? 0)
-                  const tv = Number(r.total_vendido_divisa ?? 0)
+                  const tcp = Number(r.total_comprado_dia ?? 0)
+                  const tvp = Number(r.total_vendido_dia ?? 0)
                   const origen = r.origen ?? 'OPERATIVO'
                   return (
                     <tr key={r.id} className="border-b border-slate-100">
@@ -393,9 +460,9 @@ export default function DashboardPage() {
                       </td>
                       <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(Number(r.apertura), 4)}</td>
                       <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(pa, 2)}</td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(tc, 4)}</td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatCOP(tcp)}</td>
                       <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(np, 2)}</td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(tv, 4)}</td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatCOP(tvp)}</td>
                       <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(pv, 2)}</td>
                       <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(Number(r.ganancia_calculada), 0)}</td>
                       <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(est, 4)}</td>

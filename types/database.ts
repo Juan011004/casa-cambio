@@ -84,7 +84,12 @@ export interface CierreDiarioAuditoria {
   promedio_anterior?: number
   total_comprado_divisa?: number
   total_vendido_divisa?: number
+  /** Σ COP en compras del día (misma moneda de la fila). */
+  total_comprado_dia?: number
+  /** Σ COP en ventas del día. */
+  total_vendido_dia?: number
   promedio_venta: number
+  promedio_venta_dia?: number
   origen?: OrigenCierre
   created_at: string
 }

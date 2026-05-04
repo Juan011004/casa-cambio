@@ -149,7 +149,13 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
     for (const [monedaRaw, cierreManual] of manualEntries) {
       const moneda = monedaRaw.toUpperCase()
       const aperturaSnap = aperturas?.[moneda] ?? aperturaCajaMap[moneda] ?? 0
-      const { totalCompraMonto, totalVentaMonto, promedioVentaDia } = agregarCompraVentaPorMoneda(txs, moneda)
+      const {
+        totalCompraMonto,
+        totalVentaMonto,
+        promedioVentaDia,
+        costoCompraCop,
+        ingresoVentaCop,
+      } = agregarCompraVentaPorMoneda(txs, moneda)
       const prev = prevPorMoneda.get(moneda) ?? { saldoAnterior: 0, promedioAnterior: 0 }
       const wacCompra = promedioCompraConArrastre(txs, moneda, prev.saldoAnterior, prev.promedioAnterior)
       const cierreEstimado = cierreEstimadoSimple(aperturaSnap, totalCompraMonto, totalVentaMonto)
@@ -168,7 +174,10 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
         promedio_anterior: prev.promedioAnterior,
         total_comprado_divisa: totalCompraMonto,
         total_vendido_divisa: totalVentaMonto,
+        total_comprado_dia: costoCompraCop,
+        total_vendido_dia: ingresoVentaCop,
         promedio_venta: promedioVentaDia,
+        promedio_venta_dia: promedioVentaDia,
         origen: 'OPERATIVO',
       })
     }
@@ -299,7 +308,10 @@ export async function guardarCargaInicial(raw: unknown): Promise<ActionResult> {
       promedio_anterior: 0,
       total_comprado_divisa: 0,
       total_vendido_divisa: 0,
+      total_comprado_dia: 0,
+      total_vendido_dia: 0,
       promedio_venta: 0,
+      promedio_venta_dia: 0,
       origen: 'CARGA_INICIAL',
     }
 

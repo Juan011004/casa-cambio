@@ -123,6 +123,29 @@ export const finalizarCierreSchema = z.object({
 })
 
 /** Punto cero: inventario inicial en papel → sistema (una fila por usuario/fecha/divisa). */
+export const crearActivoSchema = z.object({
+  concepto: z
+    .string()
+    .min(1, 'Indique el concepto.')
+    .max(120)
+    .transform((s) => safePlainText(s, 120))
+    .refine((s) => s.length > 0, { message: 'Indique el concepto.' }),
+  valor_cop: z.coerce
+    .number({ invalid_type_error: 'Monto inválido' })
+    .positive('El valor debe ser mayor a 0')
+    .max(moneyMax, 'Monto demasiado grande'),
+  cuenta: z.enum(['EFECTIVO', 'NEQUI', 'DEUDA', 'OTROS']),
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida').optional(),
+})
+
+export const abonarDeudaSchema = z.object({
+  id: uuidSchema,
+  monto_abono: z.coerce
+    .number({ invalid_type_error: 'Monto inválido' })
+    .positive('El abono debe ser mayor a 0')
+    .max(moneyMax, 'Monto demasiado grande'),
+})
+
 export const cargaInicialSchema = z.object({
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
   divisa: z

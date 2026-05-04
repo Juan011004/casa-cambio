@@ -160,6 +160,9 @@ export interface Database {
           promedio_anterior: number
           total_comprado_divisa: number
           total_vendido_divisa: number
+          total_comprado_dia: number
+          total_vendido_dia: number
+          promedio_venta_dia: number
           promedio_venta: number
           origen: 'OPERATIVO' | 'CARGA_INICIAL'
           created_at: string
@@ -178,6 +181,9 @@ export interface Database {
           promedio_anterior?: number
           total_comprado_divisa?: number
           total_vendido_divisa?: number
+          total_comprado_dia?: number
+          total_vendido_dia?: number
+          promedio_venta_dia?: number
           promedio_venta?: number
           origen?: 'OPERATIVO' | 'CARGA_INICIAL'
           created_at?: string
@@ -192,6 +198,9 @@ export interface Database {
           promedio_anterior?: number
           total_comprado_divisa?: number
           total_vendido_divisa?: number
+          total_comprado_dia?: number
+          total_vendido_dia?: number
+          promedio_venta_dia?: number
           promedio_venta?: number
           origen?: 'OPERATIVO' | 'CARGA_INICIAL'
         }
@@ -218,6 +227,51 @@ export interface Database {
         }
         Relationships: []
       }
+      activos: {
+        Row: {
+          id: string
+          usuario_id: string
+          concepto: string
+          valor_cop: number
+          cuenta: 'EFECTIVO' | 'NEQUI' | 'DEUDA' | 'OTROS'
+          fecha: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          usuario_id: string
+          concepto: string
+          valor_cop?: number
+          cuenta: 'EFECTIVO' | 'NEQUI' | 'DEUDA' | 'OTROS'
+          fecha?: string
+          created_at?: string
+        }
+        Update: {
+          concepto?: string
+          valor_cop?: number
+          cuenta?: 'EFECTIVO' | 'NEQUI' | 'DEUDA' | 'OTROS'
+          fecha?: string
+        }
+        Relationships: []
+      }
+      pagos_deudas: {
+        Row: {
+          id: string
+          usuario_id: string
+          deuda_id: string
+          monto_pagado: number
+          fecha_pago: string
+        }
+        Insert: {
+          id?: string
+          usuario_id: string
+          deuda_id: string
+          monto_pagado: number
+          fecha_pago?: string
+        }
+        Update: Record<string, never>
+        Relationships: []
+      }
       deudas: {
         Row: {
           id: string
@@ -239,6 +293,7 @@ export interface Database {
           estado?: 'PENDIENTE' | 'SALDADO' | null
         }
         Update: {
+          monto?: number
           estado?: 'PENDIENTE' | 'SALDADO' | null
         }
         Relationships: []
