@@ -75,5 +75,7 @@ export interface CierreDiarioAuditoria {
   cierre_manual: number
   cierre_estimado: number
   ganancia_calculada: number
+  promedio_compra: number
+  promedio_venta: number
   created_at: string
 }

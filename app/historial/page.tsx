@@ -5,9 +5,13 @@ import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import * as XLSX from 'xlsx'
 import { ChevronLeft, ChevronRight, ArrowDownLeft, ArrowUpRight, Filter, X, FileSpreadsheet } from 'lucide-react'
 import { formatCOP, formatDate, formatMilesEs, isoTimestampForPostgrestFilter } from '@/lib/utils'
+import { totalCopFromTasa } from '@/lib/pricing'
 import { SkeletonTable } from '@/components/ui/Skeletons'
-import type { Transaccion } from '@/types/database'
+import type { MetodoPago, Transaccion } from '@/types/database'
 import { toast } from 'sonner'
+import { actualizarTransaccionesHistorial } from '@/app/actions/historialTransacciones'
+import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
+import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 
 const PAGE_SIZE = 15
 
@@ -17,8 +21,24 @@ interface Filters {
   tipo: '' | 'COMPRA' | 'VENTA'
 }
 
+type BorradorFila = {
+  tipo: 'COMPRA' | 'VENTA'
+  moneda: string
+  monto_divisa: string
+  tasa_aplicada: string
+  metodo_pago: MetodoPago
+}
+
+const METODOS: MetodoPago[] = ['Efectivo', 'Nequi', 'Cheque']
+
+const inputEdit =
+  'w-full min-w-0 rounded-md border border-slate-200 bg-slate-50/90 py-1.5 px-1 text-center text-[11px] font-mono shadow-inner focus:border-blue-500 focus:bg-white focus:outline-none'
+
 export default function HistorialPage() {
   const supabase = createBrowserSupabaseClient()
+  const { rows: divisasMaestro } = useDivisasMaestro()
+  const opcionesDivisa = divisasMaestro.length ? divisasMaestro : DIVISAS_FALLBACK
+
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [rows, setRows] = useState<Transaccion[]>([])
@@ -29,6 +49,9 @@ export default function HistorialPage() {
     dateTo: '',
     tipo: '',
   })
+  const [modoEdicion, setModoEdicion] = useState(false)
+  const [borrador, setBorrador] = useState<Record<string, BorradorFila>>({})
+  const [guardando, setGuardando] = useState(false)
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -67,6 +90,24 @@ export default function HistorialPage() {
   useEffect(() => {
     void fetchData()
   }, [fetchData])
+
+  useEffect(() => {
+    if (!modoEdicion) {
+      setBorrador({})
+      return
+    }
+    const next: Record<string, BorradorFila> = {}
+    for (const tx of rows) {
+      next[tx.id] = {
+        tipo: tx.tipo,
+        moneda: tx.moneda,
+        monto_divisa: String(tx.monto_divisa),
+        tasa_aplicada: String(tx.tasa_aplicada),
+        metodo_pago: (tx.metodo_pago ?? 'Efectivo') as MetodoPago,
+      }
+    }
+    setBorrador(next)
+  }, [modoEdicion, rows])
 
   const resetFilters = () => {
     setFilters({ dateFrom: '', dateTo: '', tipo: '' })
@@ -131,23 +172,86 @@ export default function HistorialPage() {
     }
   }
 
+  const onModificarOGuardar = async () => {
+    if (!modoEdicion) {
+      setModoEdicion(true)
+      return
+    }
+
+    setGuardando(true)
+    try {
+      const payload = rows.map((tx) => {
+        const b = borrador[tx.id]
+        if (!b) return null
+        const monto = Number(b.monto_divisa)
+        const tasa = Number(b.tasa_aplicada)
+        if (!Number.isFinite(monto) || monto <= 0 || !Number.isFinite(tasa) || tasa <= 0) return null
+        return {
+          id: tx.id,
+          tipo: b.tipo,
+          moneda: b.moneda.trim().toUpperCase(),
+          monto_divisa: monto,
+          tasa_aplicada: tasa,
+          metodo_pago: b.metodo_pago,
+        }
+      })
+      const clean = payload.filter((x): x is NonNullable<typeof x> => x != null)
+      if (clean.length === 0) {
+        toast.error('Revise montos y tasas.')
+        return
+      }
+      const res = await actualizarTransaccionesHistorial(clean)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success('Cambios guardados')
+      setModoEdicion(false)
+      await fetchData()
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Error al guardar')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-6xl space-y-3 text-[13px]">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-base font-semibold text-black">Historial</h1>
+          <h1 className="text-base font-bold text-black">Historial</h1>
           <p className="text-[11px] text-slate-600">{total.toLocaleString('es-CO')} operaciones</p>
         </div>
-        <button
-          type="button"
-          disabled={exporting || total === 0}
-          onClick={() => void exportarExcel()}
-          className="inline-flex min-h-[36px] items-center gap-2 rounded-md border border-sky-600 bg-sky-600 px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <FileSpreadsheet className="h-4 w-4" aria-hidden />
-          {exporting ? 'Exportando…' : 'Exportar a Excel'}
-        </button>
+        <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+          <button
+            type="button"
+            disabled={exporting || total === 0}
+            onClick={() => void exportarExcel()}
+            className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-4 py-2 text-[12px] font-bold text-white shadow-md hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <FileSpreadsheet className="h-4 w-4" aria-hidden />
+            {exporting ? 'Exportando…' : 'Exportar a Excel'}
+          </button>
+          <button
+            type="button"
+            disabled={rows.length === 0 || guardando}
+            onClick={() => void onModificarOGuardar()}
+            className={`inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border-2 px-4 py-2 text-[12px] font-bold shadow-md disabled:cursor-not-allowed disabled:opacity-50 ${
+              modoEdicion
+                ? 'border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-700'
+                : 'border-slate-400 bg-white text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            {guardando ? 'Guardando…' : modoEdicion ? 'Guardar cambios' : 'Modificar registros'}
+          </button>
+        </div>
       </header>
+
+      {modoEdicion ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-center text-[11px] font-medium text-amber-950">
+          Modo edición: no cambie de página hasta guardar o recargar la página para descartar.
+        </p>
+      ) : null}
 
       <div className="card-pro border border-slate-100 p-3">
         <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -170,29 +274,32 @@ export default function HistorialPage() {
             <label className="label text-[11px]">Desde</label>
             <input
               type="date"
+              disabled={modoEdicion}
               value={filters.dateFrom}
               onChange={(e) => {
                 setFilters((f) => ({ ...f, dateFrom: e.target.value }))
                 setPage(1)
               }}
-              className="input-field min-h-[36px] text-[13px]"
+              className="input-field min-h-[36px] text-[13px] disabled:opacity-50"
             />
           </div>
           <div>
             <label className="label text-[11px]">Hasta</label>
             <input
               type="date"
+              disabled={modoEdicion}
               value={filters.dateTo}
               onChange={(e) => {
                 setFilters((f) => ({ ...f, dateTo: e.target.value }))
                 setPage(1)
               }}
-              className="input-field min-h-[36px] text-[13px]"
+              className="input-field min-h-[36px] text-[13px] disabled:opacity-50"
             />
           </div>
           <div>
             <label className="label text-[11px]">Tipo</label>
             <select
+              disabled={modoEdicion}
               value={filters.tipo}
               onChange={(e) => {
                 setFilters((f) => ({
@@ -201,7 +308,7 @@ export default function HistorialPage() {
                 }))
                 setPage(1)
               }}
-              className="input-field min-h-[36px] text-[13px]"
+              className="input-field min-h-[36px] text-[13px] disabled:opacity-50"
             >
               <option value="">Todos</option>
               <option value="COMPRA">Compra</option>
@@ -215,16 +322,16 @@ export default function HistorialPage() {
         <SkeletonTable rows={PAGE_SIZE} cols={8} />
       ) : (
         <div className="card-pro overflow-hidden border border-slate-100">
-          <table className="w-full border-collapse text-[12px]">
+          <table className="w-full border-collapse text-center text-[12px]">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-100">
                 <th className="table-header">#</th>
                 <th className="table-header">Fecha</th>
                 <th className="table-header">Tipo</th>
                 <th className="table-header">Divisa</th>
-                <th className="table-header text-right">Monto</th>
-                <th className="table-header text-right">Tasa</th>
-                <th className="table-header text-right">Total COP</th>
+                <th className="table-header">Monto</th>
+                <th className="table-header">Tasa</th>
+                <th className="table-header">Total COP</th>
                 <th className="table-header">Pago</th>
               </tr>
             </thead>
@@ -236,29 +343,132 @@ export default function HistorialPage() {
                   </td>
                 </tr>
               ) : (
-                rows.map((tx, idx) => (
-                  <tr key={tx.id} className="table-row-striped hover:bg-slate-50/80">
-                    <td className="table-cell text-[11px] text-slate-500">{(page - 1) * PAGE_SIZE + idx + 1}</td>
-                    <td className="table-cell text-[11px] text-slate-700">{formatDate(tx.fecha)}</td>
-                    <td className="table-cell">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
-                          tx.tipo === 'COMPRA'
-                            ? 'border-slate-100 bg-slate-50 text-slate-800'
-                            : 'border-slate-100 bg-white text-slate-800'
-                        }`}
-                      >
-                        {tx.tipo === 'COMPRA' ? <ArrowDownLeft className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}
-                        {tx.tipo}
-                      </span>
-                    </td>
-                    <td className="table-cell font-medium">{tx.moneda}</td>
-                    <td className="table-cell text-right font-mono">{formatMilesEs(Number(tx.monto_divisa), 4)}</td>
-                    <td className="table-cell text-right font-mono text-[11px]">{formatMilesEs(tx.tasa_aplicada, 2)}</td>
-                    <td className="table-cell text-right font-mono font-medium">{formatCOP(tx.total_cop)}</td>
-                    <td className="table-cell text-[11px]">{tx.metodo_pago ?? 'Efectivo'}</td>
-                  </tr>
-                ))
+                rows.map((tx, idx) => {
+                  const b = borrador[tx.id]
+                  const totalPreview =
+                    b && Number(b.monto_divisa) > 0 && Number(b.tasa_aplicada) > 0
+                      ? totalCopFromTasa(Number(b.monto_divisa), Number(b.tasa_aplicada))
+                      : tx.total_cop
+                  return (
+                    <tr key={tx.id} className="table-row-striped hover:bg-slate-50/80">
+                      <td className="table-cell text-[11px] text-slate-500">{(page - 1) * PAGE_SIZE + idx + 1}</td>
+                      <td className="table-cell text-[11px] text-slate-700">{formatDate(tx.fecha)}</td>
+                      <td className="table-cell align-middle">
+                        {modoEdicion && b ? (
+                          <select
+                            value={b.tipo}
+                            onChange={(e) =>
+                              setBorrador((prev) => ({
+                                ...prev,
+                                [tx.id]: { ...b, tipo: e.target.value as 'COMPRA' | 'VENTA' },
+                              }))
+                            }
+                            className={inputEdit}
+                          >
+                            <option value="COMPRA">COMPRA</option>
+                            <option value="VENTA">VENTA</option>
+                          </select>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center justify-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                              tx.tipo === 'COMPRA'
+                                ? 'border-slate-100 bg-slate-50 text-slate-800'
+                                : 'border-slate-100 bg-white text-slate-800'
+                            }`}
+                          >
+                            {tx.tipo === 'COMPRA' ? <ArrowDownLeft className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}
+                            {tx.tipo}
+                          </span>
+                        )}
+                      </td>
+                      <td className="table-cell align-middle">
+                        {modoEdicion && b ? (
+                          <select
+                            value={b.moneda}
+                            onChange={(e) =>
+                              setBorrador((prev) => ({
+                                ...prev,
+                                [tx.id]: { ...b, moneda: e.target.value },
+                              }))
+                            }
+                            className={inputEdit}
+                          >
+                            {opcionesDivisa.map((d) => (
+                              <option key={d.codigo} value={d.codigo}>
+                                {d.codigo}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="font-medium">{tx.moneda}</span>
+                        )}
+                      </td>
+                      <td className="table-cell align-middle">
+                        {modoEdicion && b ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={b.monto_divisa}
+                            onChange={(e) =>
+                              setBorrador((prev) => ({
+                                ...prev,
+                                [tx.id]: { ...b, monto_divisa: e.target.value },
+                              }))
+                            }
+                            className={inputEdit}
+                          />
+                        ) : (
+                          <span className="font-mono">{formatMilesEs(Number(tx.monto_divisa), 4)}</span>
+                        )}
+                      </td>
+                      <td className="table-cell align-middle">
+                        {modoEdicion && b ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={b.tasa_aplicada}
+                            onChange={(e) =>
+                              setBorrador((prev) => ({
+                                ...prev,
+                                [tx.id]: { ...b, tasa_aplicada: e.target.value },
+                              }))
+                            }
+                            className={inputEdit}
+                          />
+                        ) : (
+                          <span className="font-mono text-[11px]">{formatMilesEs(tx.tasa_aplicada, 2)}</span>
+                        )}
+                      </td>
+                      <td className="table-cell font-mono font-medium">
+                        {modoEdicion && b ? formatCOP(totalPreview) : formatCOP(tx.total_cop)}
+                      </td>
+                      <td className="table-cell align-middle text-[11px]">
+                        {modoEdicion && b ? (
+                          <select
+                            value={b.metodo_pago}
+                            onChange={(e) =>
+                              setBorrador((prev) => ({
+                                ...prev,
+                                [tx.id]: { ...b, metodo_pago: e.target.value as MetodoPago },
+                              }))
+                            }
+                            className={inputEdit}
+                          >
+                            {METODOS.map((m) => (
+                              <option key={m} value={m}>
+                                {m}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          tx.metodo_pago ?? 'Efectivo'
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -271,7 +481,7 @@ export default function HistorialPage() {
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
+                disabled={page === 1 || modoEdicion}
                 className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-100 bg-white text-slate-700 disabled:opacity-40"
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -279,7 +489,7 @@ export default function HistorialPage() {
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
+                disabled={page === totalPages || modoEdicion}
                 className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-100 bg-white text-slate-700 disabled:opacity-40"
               >
                 <ChevronRight className="h-4 w-4" />

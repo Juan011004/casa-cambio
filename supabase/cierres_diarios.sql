@@ -14,11 +14,14 @@ CREATE TABLE public.cierres_diarios (
     cierre_manual NUMERIC(15, 2) NOT NULL DEFAULT 0,
     cierre_estimado NUMERIC(15, 2) NOT NULL DEFAULT 0,
     ganancia_calculada NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    promedio_compra NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    promedio_venta NUMERIC(15, 2) NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (usuario_id, fecha, moneda)
 );
 
 CREATE INDEX IF NOT EXISTS idx_cierres_fecha_user ON public.cierres_diarios (usuario_id, fecha DESC);
+CREATE INDEX IF NOT EXISTS idx_cierres_diarios_fecha ON public.cierres_diarios (fecha DESC);
 
 ALTER TABLE public.cierres_diarios ENABLE ROW LEVEL SECURITY;
 
@@ -27,3 +30,11 @@ CREATE POLICY cierres_diarios_tenant ON public.cierres_diarios
   FOR ALL TO authenticated
   USING (usuario_id = auth.uid())
   WITH CHECK (usuario_id = auth.uid());
+
+DROP POLICY IF EXISTS "Usuarios pueden editar sus propias transacciones" ON public.transacciones;
+CREATE POLICY "Usuarios pueden editar sus propias transacciones"
+  ON public.transacciones
+  FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = usuario_id)
+  WITH CHECK (auth.uid() = usuario_id);

@@ -133,7 +133,12 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
     for (const [monedaRaw, cierreManual] of manualEntries) {
       const moneda = monedaRaw.toUpperCase()
       const aperturaSnap = aperturas?.[moneda] ?? aperturaCajaMap[moneda] ?? 0
-      const { totalCompraMonto, totalVentaMonto } = agregarCompraVentaPorMoneda(txs, moneda)
+      const {
+        totalCompraMonto,
+        totalVentaMonto,
+        promedioCompraDia,
+        promedioVentaDia,
+      } = agregarCompraVentaPorMoneda(txs, moneda)
       const cierreEstimado = cierreEstimadoSimple(aperturaSnap, totalCompraMonto, totalVentaMonto)
       const gananciaCalculada = gananciaDiaPonderadaCop(txs, moneda)
 
@@ -145,6 +150,8 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
         cierre_manual: cierreManual,
         cierre_estimado: cierreEstimado,
         ganancia_calculada: gananciaCalculada,
+        promedio_compra: promedioCompraDia,
+        promedio_venta: promedioVentaDia,
       })
     }
 

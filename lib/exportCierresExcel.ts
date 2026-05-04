@@ -6,9 +6,12 @@ export function exportCierresDiariosExcel(rows: CierreDiarioAuditoria[], fechaEt
     Fecha: r.fecha,
     Moneda: r.moneda,
     Apertura: r.apertura,
-    'Cierre estimado': r.cierre_estimado,
-    'Cierre manual': r.cierre_manual,
-    'Ganancia': r.ganancia_calculada,
+    'Promedio compra': r.promedio_compra ?? 0,
+    'Promedio venta': r.promedio_venta ?? 0,
+    Estimado: r.cierre_estimado,
+    Manual: r.cierre_manual,
+    Diferencia: Number(r.cierre_estimado) - Number(r.cierre_manual),
+    Ganancia: r.ganancia_calculada,
   }))
   const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ Fecha: fechaEtiqueta, Moneda: '—' }])
   const wb = XLSX.utils.book_new()

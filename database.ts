@@ -155,6 +155,8 @@ export interface Database {
           cierre_manual: number
           cierre_estimado: number
           ganancia_calculada: number
+          promedio_compra: number
+          promedio_venta: number
           created_at: string
         }
         Insert: {
@@ -166,6 +168,8 @@ export interface Database {
           cierre_manual?: number
           cierre_estimado?: number
           ganancia_calculada?: number
+          promedio_compra?: number
+          promedio_venta?: number
           created_at?: string
         }
         Update: {
@@ -173,6 +177,8 @@ export interface Database {
           cierre_manual?: number
           cierre_estimado?: number
           ganancia_calculada?: number
+          promedio_compra?: number
+          promedio_venta?: number
         }
         Relationships: []
       }

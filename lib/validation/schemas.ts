@@ -58,6 +58,31 @@ export const deudaRegistroSchema = z.object({
 
 export const uuidSchema = z.string().uuid('Identificador inválido.')
 
+export const historialTransaccionEdicionItemSchema = z.object({
+  id: uuidSchema,
+  tipo: z.enum(['COMPRA', 'VENTA']),
+  moneda: z
+    .string()
+    .min(2)
+    .max(12)
+    .transform(safeDivisaCode)
+    .refine((s) => s.length >= 2, { message: 'Divisa inválida' }),
+  monto_divisa: z.coerce
+    .number({ invalid_type_error: 'Monto inválido' })
+    .positive('El monto debe ser mayor a 0')
+    .max(moneyMax, 'Monto demasiado grande'),
+  tasa_aplicada: z.coerce
+    .number({ invalid_type_error: 'Tasa inválida' })
+    .positive('La tasa debe ser mayor a 0')
+    .max(moneyMax, 'Tasa demasiado grande'),
+  metodo_pago: metodoPagoSchema,
+})
+
+export const historialTransaccionesLoteSchema = z
+  .array(historialTransaccionEdicionItemSchema)
+  .min(1, 'Sin cambios.')
+  .max(60, 'Demasiados registros por lote.')
+
 export const cajaGuardarSchema = z.object({
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
   tipo: z.enum(['APERTURA', 'CIERRE']),
