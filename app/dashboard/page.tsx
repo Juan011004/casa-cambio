@@ -10,7 +10,10 @@ import { exportCierresDiariosExcel } from '@/lib/exportCierresExcel'
 import { obtenerTrmMercado } from '@/app/actions/trm'
 import { TRM_TICKER_ORDER, type TrmMercadoFila } from '@/lib/trm-ticker'
 import { CargaInicialDialog } from '@/components/CargaInicialDialog'
-import { valorCierresManualCop, valorInventarioCop, saldoDeudasNetoCop } from '@/lib/balanceCop'
+import { filasAuditoriaVivo, monedasParaAuditoria } from '@/lib/auditoriaVivo'
+import { montoDivisaEnCop, valorInventarioCop, saldoDeudasNetoCop } from '@/lib/balanceCop'
+import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
+import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import type { CierreDiarioAuditoria, Transaccion } from '@/types/database'
 import type { CopPorUnidad } from '@/lib/trm'
 
@@ -86,8 +89,9 @@ function TarjetaBalanceCop({
   valorCop: number
   loading: boolean
 }) {
+  const bar = ld ? 'border-l-slate-400' : valorCop >= 0 ? 'border-l-emerald-600' : 'border-l-rose-600'
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm border-l-[4px] border-l-blue-600">
+    <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
       <div className="min-h-[4.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
         <h2 className="text-[10px] font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
         <p className="mt-1 font-mono text-sm font-bold tabular-nums text-slate-900">
@@ -140,6 +144,7 @@ function TarjetaCompacta({
 
 export default function DashboardPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), [])
+  const { rows: divisasMaestro } = useDivisasMaestro()
   const [fechaDia, setFechaDia] = useState(() => fechaLocalYYYYMMDD())
   const [loading, setLoading] = useState(true)
   const [txRows, setTxRows] = useState<Transaccion[]>([])
@@ -153,7 +158,8 @@ export default function DashboardPage() {
   const [cierresPrevRows, setCierresPrevRows] = useState<CierreRowParaArrastre[]>([])
   const [cargaInicialOpen, setCargaInicialOpen] = useState(false)
   const [invRows, setInvRows] = useState<{ divisa: string; cantidad_actual: number }[]>([])
-  const [activosTotalCop, setActivosTotalCop] = useState(0)
+  const [activosLiquidosCop, setActivosLiquidosCop] = useState(0)
+  const [gastosDiaCop, setGastosDiaCop] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -178,7 +184,8 @@ export default function DashboardPage() {
       .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
       .lt('fecha', fechaDia)
     let invQ = supabase.from('inventario').select('divisa,cantidad_actual')
-    let actQ = supabase.from('activos').select('valor_cop')
+    let actQ = supabase.from('activos').select('valor_cop,cuenta')
+    let gastosQ = supabase.from('gastos').select('monto_cop').gte('fecha', desde).lt('fecha', hastaExclusive)
     if (user?.id) {
       debenQ = debenQ.eq('usuario_id', user.id)
       deboQ = deboQ.eq('usuario_id', user.id)
@@ -186,9 +193,10 @@ export default function DashboardPage() {
       cierresPrevQ = cierresPrevQ.eq('usuario_id', user.id)
       invQ = invQ.eq('usuario_id', user.id)
       actQ = actQ.eq('usuario_id', user.id)
+      gastosQ = gastosQ.eq('usuario_id', user.id)
     }
 
-    const [txRes, ndRes, dbRes, cRes, cPrevRes, invRes, actRes] = await Promise.all([
+    const [txRes, ndRes, dbRes, cRes, cPrevRes, invRes, actRes, gastRes] = await Promise.all([
       txQuery,
       debenQ,
       deboQ,
@@ -196,6 +204,7 @@ export default function DashboardPage() {
       cierresPrevQ,
       invQ,
       actQ,
+      gastosQ,
     ])
 
     setTxRows((txRes.data ?? []) as Transaccion[])
@@ -216,10 +225,20 @@ export default function DashboardPage() {
     setInvRows(
       (invRes.error ? [] : invRes.data ?? []) as { divisa: string; cantidad_actual: number }[]
     )
-    setActivosTotalCop(
+    setActivosLiquidosCop(
       actRes.error
         ? 0
-        : (actRes.data ?? []).reduce((s, r) => s + Number((r as { valor_cop: number }).valor_cop), 0)
+        : (actRes.data ?? []).reduce((s, r) => {
+            const row = r as { valor_cop: number; cuenta: string }
+            if (row.cuenta === 'EFECTIVO' || row.cuenta === 'NEQUI')
+              return s + Number(row.valor_cop)
+            return s
+          }, 0)
+    )
+    setGastosDiaCop(
+      gastRes.error
+        ? 0
+        : (gastRes.data ?? []).reduce((s, r) => s + Number((r as { monto_cop: number }).monto_cop), 0)
     )
     setLoading(false)
   }, [supabase, fechaDia])
@@ -276,17 +295,43 @@ export default function DashboardPage() {
 
   const balanceLoading = loading || ratesLoading
 
+  const monedasAudit = useMemo(
+    () => monedasParaAuditoria(txRows, invRows, ultimoCierrePorMoneda),
+    [txRows, invRows, ultimoCierrePorMoneda]
+  )
+
+  const filasAuditVivo = useMemo(
+    () => filasAuditoriaVivo(txRows, ultimoCierrePorMoneda, monedasAudit),
+    [txRows, ultimoCierrePorMoneda, monedasAudit]
+  )
+
+  const valorPosicionVivaCop = useMemo(() => {
+    let s = 0
+    for (const f of filasAuditVivo) {
+      s += montoDivisaEnCop(f.cantidadFinal, f.moneda, copMap)
+    }
+    return s
+  }, [filasAuditVivo, copMap])
+
   const deboTenerCop = useMemo(() => {
     return (
       valorInventarioCop(invRows, copMap) +
-      saldoDeudasNetoCop(debenRows, deboRows, copMap) +
-      activosTotalCop
+      saldoDeudasNetoCop(debenRows, deboRows, copMap) -
+      gastosDiaCop
     )
-  }, [invRows, debenRows, deboRows, activosTotalCop, copMap])
+  }, [invRows, debenRows, deboRows, copMap, gastosDiaCop])
 
   const tengoCop = useMemo(() => {
-    return valorCierresManualCop(cierresRows, copMap) + activosTotalCop
-  }, [cierresRows, activosTotalCop, copMap])
+    return valorPosicionVivaCop + activosLiquidosCop - gastosDiaCop
+  }, [valorPosicionVivaCop, activosLiquidosCop, gastosDiaCop])
+
+  const etiquetaMoneda = useMemo(() => {
+    const opt = divisasMaestro.length ? divisasMaestro : DIVISAS_FALLBACK
+    return (codigo: string) => {
+      const d = opt.find((x) => x.codigo === codigo)
+      return d ? `${d.nombre_completo} (${codigo})` : codigo
+    }
+  }, [divisasMaestro])
 
   const filasPorCodigo = useMemo(() => {
     const m = new Map<string, TrmMercadoFila>()
@@ -320,6 +365,53 @@ export default function DashboardPage() {
         <TarjetaBalanceCop titulo="Debo tener" valorCop={deboTenerCop} loading={balanceLoading} />
         <TarjetaBalanceCop titulo="Tengo" valorCop={tengoCop} loading={balanceLoading} />
       </div>
+
+      <section className="mx-auto max-w-5xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
+        <div className="border-b border-slate-200 px-3 py-2 text-center sm:text-left">
+          <h2 className="text-sm font-bold">Auditoría del día (tiempo real)</h2>
+          <p className="text-[10px] text-slate-500">Fecha operativa: {fechaDia}</p>
+        </div>
+        {loading ? (
+          <p className="p-3 text-center text-sm text-slate-500">…</p>
+        ) : filasAuditVivo.length === 0 ? (
+          <p className="p-3 text-center text-sm text-slate-500">Sin divisas con saldo o movimiento para este día.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] border-collapse text-center text-[11px]">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-100">
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Fecha</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Moneda</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Cant. inicial</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra ant.</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Cant. final</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra hoy</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. venta hoy</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Ganancia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filasAuditVivo.map((row) => (
+                  <tr key={row.moneda} className="border-b border-slate-100">
+                    <td className="px-1.5 py-1.5 font-mono text-slate-800">{fechaDia}</td>
+                    <td className="px-1.5 py-1.5 text-left font-medium sm:text-center">{etiquetaMoneda(row.moneda)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.cantidadInicial, 4)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.promedioAnterior, 2)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.cantidadFinal, 4)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.promedioCompraHoy, 2)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">
+                      {row.promedioVentaHoy > 1e-12 ? formatMilesEs(row.promedioVentaHoy, 2) : formatMilesEs(0, 2)}
+                    </td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums font-semibold text-slate-900">
+                      {Math.abs(row.gananciaCop) < 1e-6 ? formatMilesEs(0, 0) : formatCOP(row.gananciaCop)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="rounded-xl border border-slate-200 bg-slate-50/90 p-3 shadow-md">
         <div className="mb-2 flex items-center justify-between gap-2">
@@ -389,7 +481,7 @@ export default function DashboardPage() {
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
-          <h2 className="text-sm font-bold">Historial de cierres</h2>
+          <h2 className="text-sm font-bold">Cierres guardados</h2>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"

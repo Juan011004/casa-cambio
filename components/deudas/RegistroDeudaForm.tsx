@@ -25,7 +25,7 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
   const opciones = useMemo(() => (divisasRows.length ? divisasRows : DIVISAS_FALLBACK), [divisasRows])
 
   const [responsable, setResponsable] = useState('')
-  const [divisa, setDivisa] = useState('USD')
+  const [divisa, setDivisa] = useState('COP')
   const [monto, setMonto] = useState('')
   const [loading, setLoading] = useState(false)
   const [lista, setLista] = useState<RegistroDeuda[]>([])
