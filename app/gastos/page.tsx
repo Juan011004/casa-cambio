@@ -114,17 +114,15 @@ export default function GastosPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5 text-sm text-black">
-      <h1 className="text-base font-semibold">Gastos</h1>
-
-      <form onSubmit={guardar} noValidate className="card-pro flex flex-col gap-3 border border-slate-200 p-3 sm:flex-row sm:flex-wrap sm:items-end">
+    <div className="mx-auto max-w-2xl space-y-5 text-base text-black">
+      <form onSubmit={guardar} noValidate className="card-pro flex flex-col gap-3 border border-slate-200 p-4 sm:flex-row sm:flex-wrap sm:items-end">
         <div className="min-w-0 flex-1">
           <label className="label" htmlFor="g-concepto">
             Concepto
           </label>
           <input
             id="g-concepto"
-            className="input-field min-h-[40px]"
+            className="input-field min-h-[48px] text-base"
             value={concepto}
             onChange={(e) => setConcepto(e.target.value)}
             autoComplete="off"
@@ -138,22 +136,19 @@ export default function GastosPage() {
           value={monto}
           onChange={setMonto}
         />
-        <button type="submit" disabled={loading} className="btn-primary min-h-[40px] w-full shrink-0 px-6 sm:w-auto">
+        <button type="submit" disabled={loading} className="btn-primary min-h-[48px] w-full shrink-0 px-6 text-base font-semibold sm:w-auto">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
         </button>
       </form>
 
       <section className="card-pro overflow-hidden border border-slate-200">
-        <h2 className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-800">
-          Gastos del día
-        </h2>
         {listLoading ? (
-          <p className="p-4 text-sm text-slate-700">Cargando…</p>
+          <p className="p-4 text-base text-slate-700">Cargando…</p>
         ) : rows.length === 0 ? (
-          <p className="p-4 text-sm text-slate-700">Sin gastos hoy.</p>
+          <p className="p-4 text-base text-slate-700">Sin gastos hoy.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-xs">
+            <table className="w-full border-collapse text-base">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
                   <th className="table-header">Fecha</th>

@@ -286,20 +286,7 @@ export default function TengoPage() {
 
   return (
     <main className="mx-auto max-w-4xl space-y-8 text-base text-black">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Tengo</h1>
-        <p className="mt-1 text-slate-600">
-          Tu inventario real y patrimonio declarado. Aquí registras efectivo, bases y el arqueo físico de divisas (no
-          confundir con el cierre operativo en Caja).
-        </p>
-      </div>
-
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
-        <div className="border-b border-l-[4px] border-l-emerald-600 border-slate-200 px-4 py-3">
-          <h2 className="text-lg font-bold text-slate-900">Activos</h2>
-          <p className="text-sm text-slate-600">Concepto y valor en pesos colombianos.</p>
-        </div>
-
+      <section className="overflow-hidden rounded-xl border border-slate-200 border-l-[4px] border-l-emerald-600 bg-white shadow-md">
         <form onSubmit={(e) => void onCrearActivo(e)} className="border-b border-slate-100 p-4">
           <div className="grid gap-4 sm:grid-cols-12 sm:items-end">
             <div className="sm:col-span-6">
@@ -440,14 +427,7 @@ export default function TengoPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
-        <div className="border-b border-slate-200 border-l-[4px] border-l-sky-600 px-4 py-3">
-          <h2 className="text-lg font-bold text-slate-900">Arqueo de divisas</h2>
-          <p className="text-sm text-slate-600">
-            Cantidad física y precio de compra (COP por unidad). Valor en libros = cantidad × precio.
-          </p>
-        </div>
-
+      <section className="overflow-hidden rounded-xl border border-slate-200 border-l-[4px] border-l-sky-600 bg-white shadow-md">
         <form onSubmit={(e) => void onCrearArqueo(e)} className="border-b border-slate-100 p-4">
           <div className="grid gap-4 sm:grid-cols-12 sm:items-end">
             <div className="sm:col-span-4">

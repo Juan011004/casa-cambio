@@ -41,15 +41,15 @@
   }
 
   .label {
-    @apply mb-1 block text-sm font-medium text-black;
+    @apply mb-1 block text-base font-medium text-black;
   }
 
   .table-header {
-    @apply border-b border-slate-100 bg-slate-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-700;
+    @apply border-b border-slate-100 bg-slate-50 px-3 py-2 text-left text-sm font-semibold uppercase tracking-wide text-slate-700;
   }
 
   .table-cell {
-    @apply border-b border-slate-100 px-3 py-2 text-sm text-black;
+    @apply border-b border-slate-100 px-3 py-2 text-base text-black;
   }
 
   .table-row-striped:nth-child(even) {

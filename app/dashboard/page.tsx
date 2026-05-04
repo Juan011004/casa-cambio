@@ -93,7 +93,7 @@ function TarjetaBalanceCop({
   return (
     <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
       <div className="min-h-[4.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
-        <h2 className="text-[10px] font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
+        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
         <p className="mt-1 font-mono text-2xl font-bold leading-tight tabular-nums text-slate-900">
           {ld ? '…' : formatCOP(valorCop)}
         </p>
@@ -124,13 +124,13 @@ function TarjetaCompacta({
   return (
     <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
       <div className="min-h-[5.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
-        <h2 className="text-[10px] font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
+        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
         {!items.length ? (
-          <p className="mt-2 text-[13px] text-slate-400">—</p>
+          <p className="mt-2 text-base text-slate-400">—</p>
         ) : (
           <ul className="mt-1 max-h-20 space-y-0.5 overflow-y-auto">
             {items.map((x) => (
-              <li key={x.codigo} className="flex justify-between gap-2 font-mono text-[13px] tabular-nums text-slate-800">
+              <li key={x.codigo} className="flex justify-between gap-2 font-mono text-base tabular-nums text-slate-800">
                 <span className="font-semibold">{x.codigo}</span>
                 <span>{formatMilesEs(x.valor, decItems)}</span>
               </li>
@@ -337,13 +337,12 @@ export default function DashboardPage() {
 
   return (
     <main className="space-y-6 text-base text-black">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Inicio</h1>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <input
           type="date"
           value={fechaDia}
           onChange={(e) => setFechaDia(e.target.value)}
-          className="input-field min-h-[40px] max-w-[200px] text-[13px]"
+          className="input-field min-h-[48px] max-w-[200px] text-base"
         />
       </div>
 
@@ -361,9 +360,8 @@ export default function DashboardPage() {
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-slate-50/90 p-3 shadow-md">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-700">TRM</h2>
-          <span className="text-xs text-slate-500">{ratesLoading ? '…' : textoActualizado(ultimaTrm)}</span>
+        <div className="mb-2 flex justify-end">
+          <span className="text-sm text-slate-500">{ratesLoading ? '…' : textoActualizado(ultimaTrm)}</span>
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TRM_TICKER_ORDER.map((code) => {
@@ -378,8 +376,8 @@ export default function DashboardPage() {
                 <p className="text-base leading-none" aria-hidden>
                   {FLAGS[code] ?? '💱'}
                 </p>
-                <p className="mt-1 text-[11px] font-bold text-slate-800">{code}</p>
-                <p className="font-mono text-[13px] font-semibold tabular-nums">{show ? formatCOP(Number(v)) : '—'}</p>
+                <p className="mt-1 text-sm font-bold text-slate-800">{code}</p>
+                <p className="font-mono text-base font-semibold tabular-nums">{show ? formatCOP(Number(v)) : '—'}</p>
               </div>
             )
           })}
@@ -387,16 +385,13 @@ export default function DashboardPage() {
       </section>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
-        <div className="border-b border-slate-200 px-3 py-2">
-          <h2 className="text-sm font-bold">Operaciones</h2>
-        </div>
         {loading ? (
-          <p className="p-3 text-sm">…</p>
+          <p className="p-4 text-base text-slate-500">…</p>
         ) : recientes.length === 0 ? (
-          <p className="p-3 text-sm text-slate-500">—</p>
+          <p className="p-4 text-base text-slate-500">—</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] border-collapse text-[14px]">
+            <table className="w-full min-w-[560px] border-collapse text-base">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
                   <th className="px-2 py-2 font-semibold text-slate-700">Hora</th>
@@ -427,16 +422,12 @@ export default function DashboardPage() {
       </section>
 
       <section className="mx-auto max-w-5xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
-          <div className="text-center sm:text-left">
-            <h2 className="text-sm font-bold">Auditoría del día (tiempo real)</h2>
-            <p className="text-[10px] text-slate-500">Fecha operativa: {fechaDia}</p>
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-200 px-3 py-2">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setCargaInicialOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100"
             >
               <Package className="h-3.5 w-3.5" aria-hidden />
               Carga inicial
@@ -444,7 +435,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => exportAuditoriaVivoExcel(filasAuditVivo, fechaDia, etiquetaMoneda)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-white"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-white"
             >
               <Download className="h-3.5 w-3.5" aria-hidden />
               Excel
@@ -452,12 +443,12 @@ export default function DashboardPage() {
           </div>
         </div>
         {loading ? (
-          <p className="p-3 text-center text-sm text-slate-500">…</p>
+          <p className="p-4 text-center text-base text-slate-500">…</p>
         ) : filasAuditVivo.length === 0 ? (
-          <p className="p-3 text-center text-sm text-slate-500">Sin divisas con saldo o movimiento para este día.</p>
+          <p className="p-4 text-center text-base text-slate-500">Sin divisas con saldo o movimiento para este día.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse text-center text-[13px]">
+            <table className="w-full min-w-[900px] border-collapse text-center text-base">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
                   <th className="px-1.5 py-2 font-bold text-slate-700">Fecha</th>

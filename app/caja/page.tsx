@@ -215,18 +215,12 @@ export default function CajaPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 text-base text-black">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Caja</h1>
-          <p className="mt-1 max-w-xl text-slate-600">
-            Arqueo operativo del día: apertura, cierre estimado según movimientos y conteo manual.
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <input
           type="date"
           value={fecha}
           onChange={(e) => setFecha(e.target.value)}
-          className="input-field min-h-[44px] max-w-[200px] text-base"
+          className="input-field min-h-[48px] max-w-[200px] text-base"
         />
       </div>
 

@@ -100,13 +100,13 @@ export default function BuyForm() {
 
   return (
     <section className="mx-auto w-full max-w-xl">
-      <form onSubmit={handleSubmit(onSubmit)} noValidate className="card-pro space-y-3 p-3 text-sm text-black">
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="card-pro space-y-3 p-4 text-base text-black">
         <div className="space-y-3">
           <div>
             <label className="label" htmlFor="divisa-c">
               Divisa
             </label>
-            <select id="divisa-c" {...register('divisa')} className="input-field min-h-[38px] py-1.5 text-sm">
+            <select id="divisa-c" {...register('divisa')} className="input-field min-h-[48px] py-2.5 text-base">
               {opciones.map((d) => (
                 <option key={d.codigo} value={d.codigo}>
                   {byLabel[d.codigo] ? `${d.codigo} — ${byLabel[d.codigo]}` : d.codigo}
@@ -138,7 +138,7 @@ export default function BuyForm() {
             <label className="label" htmlFor="pago-c">
               Método de pago
             </label>
-            <select id="pago-c" {...register('metodo_pago')} className="input-field min-h-[38px] py-1.5 text-sm">
+            <select id="pago-c" {...register('metodo_pago')} className="input-field min-h-[48px] py-2.5 text-base">
               {METODOS.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -150,14 +150,14 @@ export default function BuyForm() {
 
           <div>
             <p className="label mb-0.5">Total COP</p>
-            <div className="flex min-h-[38px] items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+            <div className="flex min-h-[48px] items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
               <Calculator className="h-4 w-4 shrink-0 text-blue-700" />
-              <span className="text-sm font-semibold text-black">{totalCOP > 0 ? formatCOP(totalCOP) : '—'}</span>
+              <span className="text-base font-semibold text-black">{totalCOP > 0 ? formatCOP(totalCOP) : '—'}</span>
             </div>
           </div>
         </div>
 
-        <button type="submit" disabled={loading} className="btn-primary mt-1 min-h-[40px] w-full text-sm">
+        <button type="submit" disabled={loading} className="btn-primary mt-1 min-h-[48px] w-full text-base font-semibold">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Registrar compra'}
         </button>
       </form>

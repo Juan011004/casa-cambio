@@ -15,11 +15,10 @@ import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 
 type Props = {
   tipo: 'DEBEN' | 'DEBO'
-  titulo: string
   etiquetaPersona: string
 }
 
-export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
+export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), [])
   const { rows: divisasRows } = useDivisasMaestro()
   const opciones = useMemo(() => (divisasRows.length ? divisasRows : DIVISAS_FALLBACK), [divisasRows])
@@ -152,17 +151,15 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4 text-sm text-black">
-      <h1 className="text-sm font-semibold tracking-tight">{titulo}</h1>
-
-      <form onSubmit={guardar} noValidate className="card-pro space-y-2 p-3">
+    <div className="mx-auto max-w-2xl space-y-4 text-base text-black">
+      <form onSubmit={guardar} noValidate className="card-pro space-y-3 p-4">
         <div>
           <label className="label" htmlFor="resp">
             {etiquetaPersona}
           </label>
           <input
             id="resp"
-            className="input-field min-h-[36px] py-1.5"
+            className="input-field min-h-[48px] py-2.5 text-base"
             value={responsable}
             onChange={(e) => setResponsable(e.target.value)}
             required
@@ -173,7 +170,7 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
           <label className="label" htmlFor="div">
             Divisa
           </label>
-          <select id="div" className="input-field min-h-[36px] py-1.5" value={divisa} onChange={(e) => setDivisa(e.target.value)}>
+          <select id="div" className="input-field min-h-[48px] py-2.5 text-base" value={divisa} onChange={(e) => setDivisa(e.target.value)}>
             {opciones.map((d) => (
               <option key={d.codigo} value={d.codigo}>
                 {d.codigo} — {d.nombre_completo}
@@ -187,22 +184,21 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
           maxFrac={2}
           value={monto}
           onChange={setMonto}
-          inputClassName="input-field input-numeric min-h-[40px]"
+          inputClassName="input-field input-numeric min-h-[48px] text-base"
         />
-        <button type="submit" disabled={loading} className="btn-primary min-h-[40px] w-full text-sm">
+        <button type="submit" disabled={loading} className="btn-primary min-h-[48px] w-full text-base font-semibold">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
         </button>
       </form>
 
       <section className="card-pro overflow-hidden p-0">
-        <h2 className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-black">Pendientes · abonar</h2>
         {cargandoLista ? (
-          <p className="p-3 text-xs text-slate-600">Cargando…</p>
+          <p className="p-4 text-base text-slate-600">Cargando…</p>
         ) : lista.length === 0 ? (
-          <p className="p-3 text-xs text-slate-600">Sin registros pendientes.</p>
+          <p className="p-4 text-base text-slate-600">Sin registros pendientes.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-xs">
+            <table className="w-full border-collapse text-base">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   <th className="table-header max-w-[140px] text-left">{etiquetaPersona}</th>
@@ -241,8 +237,7 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
 
         {!cargandoLista && lista.length > 0 ? (
           <div className="border-t border-slate-100 bg-slate-50 px-3 py-2">
-            <p className="text-xs font-semibold text-slate-800">Resumen por divisa</p>
-            <ul className="mt-1 space-y-0.5 text-xs text-slate-700">
+            <ul className="space-y-0.5 text-base text-slate-700">
               {Array.from(totalesPorDivisa.entries()).map(([d, sum]) => (
                 <li key={d} className="flex justify-between gap-2">
                   <span>{d}</span>
@@ -272,8 +267,8 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
             >
               <X className="h-4 w-4" />
             </button>
-            <h3 className="pr-8 text-sm font-bold text-slate-900">Abonar deuda</h3>
-            <p className="mt-2 text-xs text-slate-600">
+            <h3 className="pr-8 text-base font-bold text-slate-900">Abonar deuda</h3>
+            <p className="mt-2 text-sm text-slate-600">
               Saldo pendiente:{' '}
               <span className="font-mono font-semibold text-slate-900">
                 {formatMoneyDivisa(filaModal.monto, filaModal.divisa)}
@@ -286,18 +281,18 @@ export function RegistroDeudaForm({ tipo, titulo, etiquetaPersona }: Props) {
                 maxFrac={4}
                 value={abonoStr}
                 onChange={setAbonoStr}
-                inputClassName="input-field input-numeric min-h-[40px]"
+                inputClassName="input-field input-numeric min-h-[48px] text-base"
               />
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={cerrarModal} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold">
+              <button type="button" onClick={cerrarModal} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">
                 Cancelar
               </button>
               <button
                 type="button"
                 disabled={abonandoId !== null}
                 onClick={() => void confirmarAbono()}
-                className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {abonandoId ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmar'}
               </button>

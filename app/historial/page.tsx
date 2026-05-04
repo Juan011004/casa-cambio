@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import * as XLSX from 'xlsx'
-import { ChevronLeft, ChevronRight, ArrowDownLeft, ArrowUpRight, Filter, X, FileSpreadsheet } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ArrowDownLeft, ArrowUpRight, X, FileSpreadsheet } from 'lucide-react'
 import { formatCOP, formatDate, formatMilesEs, isoTimestampForPostgrestFilter } from '@/lib/utils'
 import { totalCopFromTasa } from '@/lib/pricing'
 import { SkeletonTable } from '@/components/ui/Skeletons'
@@ -32,7 +32,7 @@ type BorradorFila = {
 const METODOS: MetodoPago[] = ['Efectivo', 'Nequi', 'Cheque']
 
 const inputEdit =
-  'w-full min-w-0 rounded-md border border-slate-200 bg-slate-50/90 py-1.5 px-1 text-center text-[13px] font-mono shadow-inner focus:border-blue-500 focus:bg-white focus:outline-none'
+  'w-full min-w-0 rounded-md border border-slate-200 bg-slate-50/90 py-2 px-1 text-center text-base font-mono shadow-inner focus:border-blue-500 focus:bg-white focus:outline-none'
 
 export default function HistorialPage() {
   const supabase = createBrowserSupabaseClient()
@@ -216,18 +216,14 @@ export default function HistorialPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-3 text-[13px]">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-base font-bold text-black">Historial</h1>
-          <p className="text-[11px] text-slate-600">{total.toLocaleString('es-CO')} operaciones</p>
-        </div>
+    <div className="mx-auto w-full max-w-6xl space-y-3 text-base">
+      <header className="flex flex-wrap items-center justify-end gap-3">
         <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
           <button
             type="button"
             disabled={exporting || total === 0}
             onClick={() => void exportarExcel()}
-            className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-4 py-2 text-[12px] font-bold text-white shadow-md hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-4 py-2 text-sm font-bold text-white shadow-md hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <FileSpreadsheet className="h-4 w-4" aria-hidden />
             {exporting ? 'Exportando…' : 'Exportar a Excel'}
@@ -236,7 +232,7 @@ export default function HistorialPage() {
             type="button"
             disabled={rows.length === 0 || guardando}
             onClick={() => void onModificarOGuardar()}
-            className={`inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border-2 px-4 py-2 text-[12px] font-bold shadow-md disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-lg border-2 px-4 py-2 text-sm font-bold shadow-md disabled:cursor-not-allowed disabled:opacity-50 ${
               modoEdicion
                 ? 'border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-700'
                 : 'border-slate-400 bg-white text-slate-900 hover:bg-slate-50'
@@ -248,20 +244,18 @@ export default function HistorialPage() {
       </header>
 
       {modoEdicion ? (
-        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-center text-[11px] font-medium text-amber-950">
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-center text-sm font-medium text-amber-950">
           Modo edición: no cambie de página hasta guardar o recargar la página para descartar.
         </p>
       ) : null}
 
-      <div className="card-pro border border-slate-100 p-3">
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <Filter className="h-3.5 w-3.5 text-slate-500" />
-          <span className="text-[11px] font-medium text-slate-600">Filtros</span>
+      <div className="card-pro border border-slate-100 p-4">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           {hasFilters && (
             <button
               type="button"
               onClick={resetFilters}
-              className="ml-auto flex items-center gap-1 text-[11px] font-medium text-slate-700 hover:text-black"
+              className="ml-auto flex items-center gap-1 text-sm font-medium text-slate-700 hover:text-black"
             >
               <X className="h-3 w-3" />
               Limpiar
@@ -271,7 +265,7 @@ export default function HistorialPage() {
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <div>
-            <label className="label text-[11px]">Desde</label>
+            <label className="label text-base">Desde</label>
             <input
               type="date"
               disabled={modoEdicion}
@@ -280,11 +274,11 @@ export default function HistorialPage() {
                 setFilters((f) => ({ ...f, dateFrom: e.target.value }))
                 setPage(1)
               }}
-              className="input-field min-h-[36px] text-[13px] disabled:opacity-50"
+              className="input-field min-h-[48px] text-base disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="label text-[11px]">Hasta</label>
+            <label className="label text-base">Hasta</label>
             <input
               type="date"
               disabled={modoEdicion}
@@ -293,11 +287,11 @@ export default function HistorialPage() {
                 setFilters((f) => ({ ...f, dateTo: e.target.value }))
                 setPage(1)
               }}
-              className="input-field min-h-[36px] text-[13px] disabled:opacity-50"
+              className="input-field min-h-[48px] text-base disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="label text-[11px]">Tipo</label>
+            <label className="label text-base">Tipo</label>
             <select
               disabled={modoEdicion}
               value={filters.tipo}
@@ -308,7 +302,7 @@ export default function HistorialPage() {
                 }))
                 setPage(1)
               }}
-              className="input-field min-h-[36px] text-[13px] disabled:opacity-50"
+              className="input-field min-h-[48px] text-base disabled:opacity-50"
             >
               <option value="">Todos</option>
               <option value="COMPRA">Compra</option>
@@ -322,7 +316,7 @@ export default function HistorialPage() {
         <SkeletonTable rows={PAGE_SIZE} cols={8} />
       ) : (
         <div className="card-pro overflow-hidden border border-slate-100">
-          <table className="w-full border-collapse text-center text-[14px]">
+          <table className="w-full border-collapse text-center text-base">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-100">
                 <th className="table-header">#</th>
@@ -351,8 +345,8 @@ export default function HistorialPage() {
                       : tx.total_cop
                   return (
                     <tr key={tx.id} className="table-row-striped hover:bg-slate-50/80">
-                      <td className="table-cell text-[13px] text-slate-500">{(page - 1) * PAGE_SIZE + idx + 1}</td>
-                      <td className="table-cell text-[13px] text-slate-700">{formatDate(tx.fecha)}</td>
+                      <td className="table-cell text-base text-slate-500">{(page - 1) * PAGE_SIZE + idx + 1}</td>
+                      <td className="table-cell text-base text-slate-700">{formatDate(tx.fecha)}</td>
                       <td className="table-cell align-middle">
                         {modoEdicion && b ? (
                           <select
@@ -370,7 +364,7 @@ export default function HistorialPage() {
                           </select>
                         ) : (
                           <span
-                            className={`inline-flex items-center justify-center gap-1 rounded-md border px-2 py-0.5 text-[13px] font-medium ${
+                            className={`inline-flex items-center justify-center gap-1 rounded-md border px-2 py-0.5 text-base font-medium ${
                               tx.tipo === 'COMPRA'
                                 ? 'border-slate-100 bg-slate-50 text-slate-800'
                                 : 'border-slate-100 bg-white text-slate-800'
@@ -438,13 +432,13 @@ export default function HistorialPage() {
                             className={inputEdit}
                           />
                         ) : (
-                          <span className="font-mono text-[13px]">{formatMilesEs(tx.tasa_aplicada, 2)}</span>
+                          <span className="font-mono text-base">{formatMilesEs(tx.tasa_aplicada, 2)}</span>
                         )}
                       </td>
                       <td className="table-cell font-mono font-medium">
                         {modoEdicion && b ? formatCOP(totalPreview) : formatCOP(tx.total_cop)}
                       </td>
-                      <td className="table-cell align-middle text-[13px]">
+                      <td className="table-cell align-middle text-base">
                         {modoEdicion && b ? (
                           <select
                             value={b.metodo_pago}
@@ -474,7 +468,7 @@ export default function HistorialPage() {
           </table>
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-3 py-2">
-            <p className="text-[11px] text-slate-600">
+            <p className="text-sm text-slate-600">
               Página {page} / {totalPages} · {total} resultados
             </p>
             <div className="flex gap-1">

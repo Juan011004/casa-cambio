@@ -36,18 +36,12 @@ export default function InventoryPage() {
   }, [cargar])
 
   return (
-    <main className="mx-auto max-w-2xl space-y-4 text-[13px] text-black" aria-label="Inventario">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-base font-semibold">Inventario</h1>
-          <p className="mt-1 text-[11px] text-slate-600">
-            Stock por divisa (se actualiza con compras, ventas, deudas y el cierre de caja).
-          </p>
-        </div>
+    <main className="mx-auto max-w-2xl space-y-4 text-base text-black" aria-label="Inventario">
+      <header className="flex flex-wrap items-center justify-end gap-3">
         <button
           type="button"
           onClick={() => void cargar()}
-          className="btn-secondary inline-flex items-center gap-2 text-xs"
+          className="btn-secondary inline-flex items-center gap-2 text-base"
         >
           <RefreshCw className="h-4 w-4" />
           Actualizar
@@ -62,7 +56,7 @@ export default function InventoryPage() {
         </p>
       ) : (
         <div className="card-pro overflow-hidden border border-slate-200">
-          <table className="w-full border-collapse text-[15px]">
+          <table className="w-full border-collapse text-base">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-100">
                 <th className="table-header">Divisa</th>
@@ -82,7 +76,7 @@ export default function InventoryPage() {
                   <td className="table-cell text-right font-mono font-medium">
                     {formatMilesEs(Number(r.cantidad_actual), 4)}
                   </td>
-                  <td className="table-cell text-[13px] text-slate-600">
+                  <td className="table-cell text-base text-slate-600">
                     {r.ultima_actualizacion
                       ? new Date(r.ultima_actualizacion).toLocaleString('es-CO', {
                           dateStyle: 'short',
