@@ -98,6 +98,19 @@ function sumDeudasPendientes(rows: { divisa: string; monto: number }[]): { codig
     .map(([codigo, valor]) => ({ codigo, valor }))
 }
 
+function sumDeudasTotalCop(rows: { divisa: string; monto: number }[], copMap: CopPorUnidad): number {
+  let s = 0
+  for (const r of rows) {
+    const div = r.divisa
+    const m = Number(r.monto)
+    if (!Number.isFinite(m) || m === 0) continue
+    const tasa = div === 'COP' ? 1 : Number(copMap[div] ?? 0)
+    if (!Number.isFinite(tasa) || tasa <= 0) continue
+    s += m * tasa
+  }
+  return s
+}
+
 function TarjetaBalanceCop({
   titulo,
   valorCop,
@@ -112,7 +125,30 @@ function TarjetaBalanceCop({
     <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
       <div className="min-h-[4.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
         <h2 className="text-sm font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
-        <p className="mt-1 font-mono text-3xl font-bold leading-tight tabular-nums text-slate-900">
+        <p className="mt-1 truncate font-mono text-2xl font-bold leading-tight tabular-nums text-slate-900">
+          {ld ? '…' : formatCOP(valorCop)}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function TarjetaResumenCop({
+  titulo,
+  valorCop,
+  loading: ld,
+  bar,
+}: {
+  titulo: string
+  valorCop: number
+  loading: boolean
+  bar: string
+}) {
+  return (
+    <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
+      <div className="min-h-[4.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
+        <p className="mt-1 truncate font-mono text-2xl font-bold leading-tight tabular-nums text-slate-900">
           {ld ? '…' : formatCOP(valorCop)}
         </p>
       </div>
@@ -153,7 +189,7 @@ function TarjetaCompacta({
         ) : (
           <ul className="mt-1 max-h-20 space-y-0.5 overflow-y-auto">
             {items.map((x) => (
-              <li key={x.codigo} className="flex justify-between gap-2 font-mono text-base tabular-nums text-slate-800">
+              <li key={x.codigo} className="flex justify-between gap-2 font-mono text-sm tabular-nums text-slate-800">
                 <span className="font-semibold">{x.codigo}</span>
                 <span>{formatMilesEs(x.valor, decItems)}</span>
               </li>
@@ -166,7 +202,7 @@ function TarjetaCompacta({
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
             {totalFooterLabel ?? 'Total (COP)'}
           </p>
-          <p className="font-mono text-3xl font-bold tabular-nums text-slate-900">{formatCOP(totalCopFooter)}</p>
+          <p className="truncate font-mono text-2xl font-bold tabular-nums text-slate-900">{formatCOP(totalCopFooter)}</p>
         </div>
       )}
     </div>
@@ -191,6 +227,8 @@ export default function DashboardPage() {
   const [sumArqueoCop, setSumArqueoCop] = useState(0)
   const [gastosDiaCop, setGastosDiaCop] = useState(0)
   const [gananciaUltimoCierreCop, setGananciaUltimoCierreCop] = useState(0)
+  const [acumGananciasCop, setAcumGananciasCop] = useState(0)
+  const [acumGastosCop, setAcumGastosCop] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -220,6 +258,8 @@ export default function DashboardPage() {
       .from('cierres_diarios')
       .select('fecha,ganancia_calculada')
       .lt('fecha', fechaDia)
+    let cierresAcumQ = supabase.from('cierres_diarios').select('ganancia_calculada')
+    let gastosAcumQ = supabase.from('gastos').select('monto_cop')
     if (user?.id) {
       debenQ = debenQ.eq('usuario_id', user.id)
       deboQ = deboQ.eq('usuario_id', user.id)
@@ -228,9 +268,11 @@ export default function DashboardPage() {
       arqQ = arqQ.eq('usuario_id', user.id)
       gastosQ = gastosQ.eq('usuario_id', user.id)
       cierresGanQ = cierresGanQ.eq('usuario_id', user.id)
+      cierresAcumQ = cierresAcumQ.eq('usuario_id', user.id)
+      gastosAcumQ = gastosAcumQ.eq('usuario_id', user.id)
     }
 
-    const [txRes, ndRes, dbRes, cPrevRes, invRes, arqRes, gastRes, ganRes] = await Promise.all([
+    const [txRes, ndRes, dbRes, cPrevRes, invRes, arqRes, gastRes, ganRes, acumGanRes, acumGastRes] = await Promise.all([
       txQuery,
       debenQ,
       deboQ,
@@ -239,6 +281,8 @@ export default function DashboardPage() {
       arqQ,
       gastosQ,
       cierresGanQ,
+      cierresAcumQ,
+      gastosAcumQ,
     ])
 
     setTxRows((txRes.data ?? []) as Transaccion[])
@@ -274,12 +318,52 @@ export default function DashboardPage() {
     setGananciaUltimoCierreCop(
       ganRes.error ? 0 : gananciaUltimoCierreAntesDe((ganRes.data ?? []) as { fecha: string; ganancia_calculada: unknown }[], fechaDia)
     )
+    setAcumGananciasCop(
+      acumGanRes.error
+        ? 0
+        : (acumGanRes.data ?? []).reduce((s, r) => s + Number((r as { ganancia_calculada: number }).ganancia_calculada ?? 0), 0)
+    )
+    setAcumGastosCop(
+      acumGastRes.error
+        ? 0
+        : (acumGastRes.data ?? []).reduce((s, r) => s + Number((r as { monto_cop: number }).monto_cop ?? 0), 0)
+    )
     setLoading(false)
   }, [supabase, fechaDia])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    let active = true
+    let channel: ReturnType<typeof supabase.channel> | null = null
+    void (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!active || !user?.id) return
+
+      channel = supabase
+        .channel('dashboard-acumulados')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'cierres_diarios', filter: `usuario_id=eq.${user.id}` },
+          () => void load()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'gastos', filter: `usuario_id=eq.${user.id}` },
+          () => void load()
+        )
+        .subscribe()
+    })()
+
+    return () => {
+      active = false
+      if (channel) void supabase.removeChannel(channel)
+    }
+  }, [supabase, load])
 
   useEffect(() => {
     let cancelled = false
@@ -354,6 +438,10 @@ export default function DashboardPage() {
     return tengoCop + gananciaUltimoCierreCop - gastosDiaCop
   }, [tengoCop, gananciaUltimoCierreCop, gastosDiaCop])
 
+  const totalDebenCop = useMemo(() => sumDeudasTotalCop(debenRows, copMap), [debenRows, copMap])
+  const totalDeboCop = useMemo(() => sumDeudasTotalCop(deboRows, copMap), [deboRows, copMap])
+  const utilidadNetaCop = useMemo(() => acumGananciasCop - acumGastosCop, [acumGananciasCop, acumGastosCop])
+
   const etiquetaMoneda = useMemo(() => {
     const opt = divisasMaestro.length ? divisasMaestro : DIVISAS_FALLBACK
     return (codigo: string) => {
@@ -392,8 +480,41 @@ export default function DashboardPage() {
           totalCopFooter={loading ? undefined : totalGananciaDiaCop}
           totalFooterLabel="Total ganancia (COP)"
         />
-        <TarjetaCompacta titulo="Me deben" items={loading ? [] : nosDebenLista} accent="violet" />
-        <TarjetaCompacta titulo="Debo" items={loading ? [] : debemosLista} accent="rose" />
+        <TarjetaCompacta
+          titulo="Me deben"
+          items={loading ? [] : nosDebenLista}
+          accent="violet"
+          totalCopFooter={balanceLoading ? undefined : totalDebenCop}
+          totalFooterLabel="Total en COP"
+        />
+        <TarjetaCompacta
+          titulo="Debo"
+          items={loading ? [] : debemosLista}
+          accent="rose"
+          totalCopFooter={balanceLoading ? undefined : totalDeboCop}
+          totalFooterLabel="Total en COP"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <TarjetaResumenCop
+          titulo="Acumulado ganancias"
+          valorCop={acumGananciasCop}
+          loading={loading}
+          bar="border-l-sky-600"
+        />
+        <TarjetaResumenCop
+          titulo="Acumulado gastos"
+          valorCop={acumGastosCop}
+          loading={loading}
+          bar="border-l-orange-500"
+        />
+        <TarjetaResumenCop
+          titulo="Diferencia"
+          valorCop={utilidadNetaCop}
+          loading={loading}
+          bar="border-l-violet-600"
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
