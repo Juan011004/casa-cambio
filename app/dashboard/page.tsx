@@ -68,6 +68,24 @@ function gananciaListaDesdeTx(
   return out
 }
 
+/** Suma `ganancia_calculada` del día de cierre más reciente estrictamente anterior a `fechaDia`. */
+function gananciaUltimoCierreAntesDe(
+  rows: { fecha: string | unknown; ganancia_calculada: number | string | null | unknown }[],
+  fechaDia: string
+): number {
+  const byDate = new Map<string, number>()
+  for (const r of rows) {
+    const key = String(r.fecha).slice(0, 10)
+    if (key >= fechaDia) continue
+    const g = Number(r.ganancia_calculada ?? 0)
+    if (!Number.isFinite(g)) continue
+    byDate.set(key, (byDate.get(key) ?? 0) + g)
+  }
+  const fechas = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a))
+  const ultima = fechas[0]
+  return ultima ? (byDate.get(ultima) ?? 0) : 0
+}
+
 function sumDeudasPendientes(rows: { divisa: string; monto: number }[]): { codigo: string; valor: number }[] {
   const m = new Map<string, number>()
   for (const r of rows) {
@@ -89,7 +107,7 @@ function TarjetaBalanceCop({
   valorCop: number
   loading: boolean
 }) {
-  const bar = ld ? 'border-l-slate-400' : valorCop >= 0 ? 'border-l-emerald-600' : 'border-l-rose-600'
+  const bar = ld ? 'border-l-slate-400' : 'border-l-[#0047AB]'
   return (
     <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
       <div className="min-h-[4.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
@@ -160,6 +178,7 @@ export default function DashboardPage() {
   const [sumActivosCop, setSumActivosCop] = useState(0)
   const [sumArqueoCop, setSumArqueoCop] = useState(0)
   const [gastosDiaCop, setGastosDiaCop] = useState(0)
+  const [gananciaUltimoCierreCop, setGananciaUltimoCierreCop] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -186,6 +205,10 @@ export default function DashboardPage() {
     let actQ = supabase.from('activos').select('valor_cop')
     let arqQ = supabase.from('arqueo_tengo').select('cantidad,precio_compra')
     let gastosQ = supabase.from('gastos').select('monto_cop').gte('fecha', desde).lt('fecha', hastaExclusive)
+    let cierresGanQ = supabase
+      .from('cierres_diarios')
+      .select('fecha,ganancia_calculada')
+      .lt('fecha', fechaDia)
     if (user?.id) {
       debenQ = debenQ.eq('usuario_id', user.id)
       deboQ = deboQ.eq('usuario_id', user.id)
@@ -194,9 +217,10 @@ export default function DashboardPage() {
       actQ = actQ.eq('usuario_id', user.id)
       arqQ = arqQ.eq('usuario_id', user.id)
       gastosQ = gastosQ.eq('usuario_id', user.id)
+      cierresGanQ = cierresGanQ.eq('usuario_id', user.id)
     }
 
-    const [txRes, ndRes, dbRes, cPrevRes, invRes, actRes, arqRes, gastRes] = await Promise.all([
+    const [txRes, ndRes, dbRes, cPrevRes, invRes, actRes, arqRes, gastRes, ganRes] = await Promise.all([
       txQuery,
       debenQ,
       deboQ,
@@ -205,6 +229,7 @@ export default function DashboardPage() {
       actQ,
       arqQ,
       gastosQ,
+      cierresGanQ,
     ])
 
     setTxRows((txRes.data ?? []) as Transaccion[])
@@ -239,6 +264,9 @@ export default function DashboardPage() {
       gastRes.error
         ? 0
         : (gastRes.data ?? []).reduce((s, r) => s + Number((r as { monto_cop: number }).monto_cop), 0)
+    )
+    setGananciaUltimoCierreCop(
+      ganRes.error ? 0 : gananciaUltimoCierreAntesDe((ganRes.data ?? []) as { fecha: string; ganancia_calculada: unknown }[], fechaDia)
     )
     setLoading(false)
   }, [supabase, fechaDia])
@@ -305,19 +333,20 @@ export default function DashboardPage() {
     [txRows, ultimoCierrePorMoneda, monedasAudit]
   )
 
-  /** Patrimonio declarado en Tengo (activos COP + arqueo físico); no usa inventario ni transacciones del día. */
+  /** Activos + arqueo + deudas (me deben − debo), COP; sin transacciones del día ni inventario operativo. */
   const patrimonioDeclaradoCop = useMemo(
     () => sumActivosCop + sumArqueoCop,
     [sumActivosCop, sumArqueoCop]
   )
 
-  const deboTenerCop = useMemo(() => {
-    return patrimonioDeclaradoCop + saldoDeudasNetoCop(debenRows, deboRows, copMap) - gastosDiaCop
-  }, [patrimonioDeclaradoCop, debenRows, deboRows, copMap, gastosDiaCop])
-
   const tengoCop = useMemo(() => {
-    return patrimonioDeclaradoCop - gastosDiaCop
-  }, [patrimonioDeclaradoCop, gastosDiaCop])
+    return patrimonioDeclaradoCop + saldoDeudasNetoCop(debenRows, deboRows, copMap)
+  }, [patrimonioDeclaradoCop, debenRows, deboRows, copMap])
+
+  /** Tengo + ganancia del último cierre guardado (antes del día operativo) − gastos del día. */
+  const deboTenerCop = useMemo(() => {
+    return tengoCop + gananciaUltimoCierreCop - gastosDiaCop
+  }, [tengoCop, gananciaUltimoCierreCop, gastosDiaCop])
 
   const etiquetaMoneda = useMemo(() => {
     const opt = divisasMaestro.length ? divisasMaestro : DIVISAS_FALLBACK
@@ -355,8 +384,8 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <TarjetaBalanceCop titulo="Debo tener" valorCop={deboTenerCop} loading={balanceLoading} />
         <TarjetaBalanceCop titulo="Tengo" valorCop={tengoCop} loading={balanceLoading} />
+        <TarjetaBalanceCop titulo="Debo tener" valorCop={deboTenerCop} loading={balanceLoading} />
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-slate-50/90 p-3 shadow-md">
