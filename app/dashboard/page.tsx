@@ -112,7 +112,7 @@ function TarjetaBalanceCop({
     <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
       <div className="min-h-[4.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
         <h2 className="text-sm font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
-        <p className="mt-1 font-mono text-2xl font-bold leading-tight tabular-nums text-slate-900">
+        <p className="mt-1 font-mono text-3xl font-bold leading-tight tabular-nums text-slate-900">
           {ld ? '…' : formatCOP(valorCop)}
         </p>
       </div>
@@ -125,11 +125,16 @@ function TarjetaCompacta({
   items,
   decItems = 4,
   accent,
+  totalCopFooter,
+  totalFooterLabel,
 }: {
   titulo: string
   items: { codigo: string; valor: number }[]
   decItems?: number
   accent: 'emerald' | 'rose' | 'sky' | 'violet'
+  /** Si está definido (incluye 0), muestra pie con total en COP. */
+  totalCopFooter?: number
+  totalFooterLabel?: string
 }) {
   const bar =
     accent === 'emerald'
@@ -156,6 +161,14 @@ function TarjetaCompacta({
           </ul>
         )}
       </div>
+      {totalCopFooter !== undefined && (
+        <div className="border-t border-slate-200 bg-slate-50/90 px-2.5 py-2 pl-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+            {totalFooterLabel ?? 'Total (COP)'}
+          </p>
+          <p className="font-mono text-3xl font-bold tabular-nums text-slate-900">{formatCOP(totalCopFooter)}</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -175,7 +188,6 @@ export default function DashboardPage() {
   const [cierresPrevRows, setCierresPrevRows] = useState<CierreRowParaArrastre[]>([])
   const [cargaInicialOpen, setCargaInicialOpen] = useState(false)
   const [invRows, setInvRows] = useState<{ divisa: string; cantidad_actual: number }[]>([])
-  const [sumActivosCop, setSumActivosCop] = useState(0)
   const [sumArqueoCop, setSumArqueoCop] = useState(0)
   const [gastosDiaCop, setGastosDiaCop] = useState(0)
   const [gananciaUltimoCierreCop, setGananciaUltimoCierreCop] = useState(0)
@@ -202,7 +214,6 @@ export default function DashboardPage() {
       .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
       .lt('fecha', fechaDia)
     let invQ = supabase.from('inventario').select('divisa,cantidad_actual')
-    let actQ = supabase.from('activos').select('valor_cop')
     let arqQ = supabase.from('arqueo_tengo').select('cantidad,precio_compra')
     let gastosQ = supabase.from('gastos').select('monto_cop').gte('fecha', desde).lt('fecha', hastaExclusive)
     let cierresGanQ = supabase
@@ -214,19 +225,17 @@ export default function DashboardPage() {
       deboQ = deboQ.eq('usuario_id', user.id)
       cierresPrevQ = cierresPrevQ.eq('usuario_id', user.id)
       invQ = invQ.eq('usuario_id', user.id)
-      actQ = actQ.eq('usuario_id', user.id)
       arqQ = arqQ.eq('usuario_id', user.id)
       gastosQ = gastosQ.eq('usuario_id', user.id)
       cierresGanQ = cierresGanQ.eq('usuario_id', user.id)
     }
 
-    const [txRes, ndRes, dbRes, cPrevRes, invRes, actRes, arqRes, gastRes, ganRes] = await Promise.all([
+    const [txRes, ndRes, dbRes, cPrevRes, invRes, arqRes, gastRes, ganRes] = await Promise.all([
       txQuery,
       debenQ,
       deboQ,
       cierresPrevQ,
       invQ,
-      actQ,
       arqQ,
       gastosQ,
       cierresGanQ,
@@ -248,9 +257,6 @@ export default function DashboardPage() {
     setCierresPrevRows((cPrevRes.error ? [] : cPrevRes.data) as CierreRowParaArrastre[])
     setInvRows(
       (invRes.error ? [] : invRes.data ?? []) as { divisa: string; cantidad_actual: number }[]
-    )
-    setSumActivosCop(
-      actRes.error ? 0 : (actRes.data ?? []).reduce((s, r) => s + Number((r as { valor_cop: number }).valor_cop), 0)
     )
     setSumArqueoCop(
       arqRes.error
@@ -299,6 +305,11 @@ export default function DashboardPage() {
     () => gananciaListaDesdeTx(txRows, ultimoCierrePorMoneda),
     [txRows, ultimoCierrePorMoneda]
   )
+
+  const totalGananciaDiaCop = useMemo(
+    () => gananciaLista.reduce((s, x) => s + x.valor, 0),
+    [gananciaLista]
+  )
   const nosDebenLista = useMemo(() => sumDeudasPendientes(debenRows), [debenRows])
   const debemosLista = useMemo(() => sumDeudasPendientes(deboRows), [deboRows])
 
@@ -333,15 +344,10 @@ export default function DashboardPage() {
     [txRows, ultimoCierrePorMoneda, monedasAudit]
   )
 
-  /** Activos + arqueo + deudas (me deben − debo), COP; sin transacciones del día ni inventario operativo. */
-  const patrimonioDeclaradoCop = useMemo(
-    () => sumActivosCop + sumArqueoCop,
-    [sumActivosCop, sumArqueoCop]
-  )
-
+  /** Arqueo por divisa valorado a precio de compra + deudas (me deben − debo), COP. */
   const tengoCop = useMemo(() => {
-    return patrimonioDeclaradoCop + saldoDeudasNetoCop(debenRows, deboRows, copMap)
-  }, [patrimonioDeclaradoCop, debenRows, deboRows, copMap])
+    return sumArqueoCop + saldoDeudasNetoCop(debenRows, deboRows, copMap)
+  }, [sumArqueoCop, debenRows, deboRows, copMap])
 
   /** Tengo + ganancia del último cierre guardado (antes del día operativo) − gastos del día. */
   const deboTenerCop = useMemo(() => {
@@ -378,7 +384,14 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <TarjetaCompacta titulo="Compra" items={loading ? [] : comprasLista} accent="sky" />
         <TarjetaCompacta titulo="Venta" items={loading ? [] : ventasLista} accent="rose" />
-        <TarjetaCompacta titulo="Ganancia" items={loading ? [] : gananciaLista} decItems={0} accent="emerald" />
+        <TarjetaCompacta
+          titulo="Ganancia"
+          items={loading ? [] : gananciaLista}
+          decItems={0}
+          accent="emerald"
+          totalCopFooter={loading ? undefined : totalGananciaDiaCop}
+          totalFooterLabel="Total ganancia (COP)"
+        />
         <TarjetaCompacta titulo="Me deben" items={loading ? [] : nosDebenLista} accent="violet" />
         <TarjetaCompacta titulo="Debo" items={loading ? [] : debemosLista} accent="rose" />
       </div>

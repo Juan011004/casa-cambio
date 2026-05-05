@@ -67,6 +67,8 @@ export default function GastosPage() {
     void cargar()
   }, [cargar])
 
+  const totalGastosCop = useMemo(() => rows.reduce((s, r) => s + r.monto_cop, 0), [rows])
+
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault()
     const m = parseFlexibleNumber(monto)
@@ -141,7 +143,7 @@ export default function GastosPage() {
         </button>
       </form>
 
-      <section className="card-pro overflow-hidden border border-slate-200">
+      <section className="card-pro overflow-hidden border border-slate-200 border-l-[4px] border-l-amber-600">
         {listLoading ? (
           <p className="p-4 text-base text-slate-700">Cargando…</p>
         ) : rows.length === 0 ? (
@@ -183,6 +185,17 @@ export default function GastosPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-slate-50">
+                  <td colSpan={2} className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-700">
+                    Total (COP)
+                  </td>
+                  <td className="px-3 py-3 text-right font-mono text-3xl font-bold tabular-nums text-slate-900">
+                    {formatCOP(totalGastosCop)}
+                  </td>
+                  <td className="bg-slate-50" />
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}

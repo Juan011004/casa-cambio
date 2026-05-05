@@ -227,30 +227,6 @@ export interface Database {
         }
         Relationships: []
       }
-      activos: {
-        Row: {
-          id: string
-          usuario_id: string
-          concepto: string
-          valor_cop: number
-          fecha: string
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          usuario_id: string
-          concepto: string
-          valor_cop?: number
-          fecha?: string
-          created_at?: string
-        }
-        Update: {
-          concepto?: string
-          valor_cop?: number
-          fecha?: string
-        }
-        Relationships: []
-      }
       arqueo_tengo: {
         Row: {
           id: string

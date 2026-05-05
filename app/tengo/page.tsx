@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, Loader2, Pencil, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
-import { crearActivo, actualizarActivo, eliminarActivo } from '@/app/actions/activos'
 import { upsertArqueoTengo, eliminarArqueoTengo } from '@/app/actions/arqueoTengo'
 import { formatCOP, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
@@ -12,13 +11,6 @@ import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { errorMessage } from '@/lib/errorMessage'
-
-type ActivoRow = {
-  id: string
-  concepto: string
-  valor_cop: number
-  fecha: string
-}
 
 type ArqueoRow = {
   id: string
@@ -35,29 +27,18 @@ export default function TengoPage() {
   const divisas = useMemo(() => (divisasMaestro.length ? divisasMaestro : DIVISAS_FALLBACK), [divisasMaestro])
 
   const [loading, setLoading] = useState(true)
-  const [activos, setActivos] = useState<ActivoRow[]>([])
   const [arqueo, setArqueo] = useState<ArqueoRow[]>([])
-
-  const [actConcepto, setActConcepto] = useState('')
-  const [actValor, setActValor] = useState('')
-  const [actGuardando, setActGuardando] = useState(false)
 
   const [arqCodigo, setArqCodigo] = useState('USD')
   const [arqCantidad, setArqCantidad] = useState('')
   const [arqPrecio, setArqPrecio] = useState('')
   const [arqGuardando, setArqGuardando] = useState(false)
 
-  const [editActivoId, setEditActivoId] = useState<string | null>(null)
-  const [draftConcepto, setDraftConcepto] = useState('')
-  const [draftValor, setDraftValor] = useState('')
-  const [savingActivo, setSavingActivo] = useState(false)
-
   const [editArqueoId, setEditArqueoId] = useState<string | null>(null)
   const [draftCantidad, setDraftCantidad] = useState('')
   const [draftPrecio, setDraftPrecio] = useState('')
   const [savingArqueo, setSavingArqueo] = useState(false)
 
-  const [elimActivo, setElimActivo] = useState<string | null>(null)
   const [elimArqueo, setElimArqueo] = useState<string | null>(null)
 
   const cargar = useCallback(async () => {
@@ -66,26 +47,17 @@ export default function TengoPage() {
       data: { user },
     } = await supabase.auth.getUser()
     if (!user) {
-      setActivos([])
       setArqueo([])
       setLoading(false)
       return
     }
 
-    const [aRes, qRes] = await Promise.all([
-      supabase
-        .from('activos')
-        .select('id,concepto,valor_cop,fecha')
-        .eq('usuario_id', user.id)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('arqueo_tengo')
-        .select('id,moneda_codigo,moneda_nombre,cantidad,precio_compra,fecha')
-        .eq('usuario_id', user.id)
-        .order('moneda_codigo'),
-    ])
+    const qRes = await supabase
+      .from('arqueo_tengo')
+      .select('id,moneda_codigo,moneda_nombre,cantidad,precio_compra,fecha')
+      .eq('usuario_id', user.id)
+      .order('moneda_codigo')
 
-    setActivos((aRes.error ? [] : aRes.data) as ActivoRow[])
     setArqueo((qRes.error ? [] : qRes.data) as ArqueoRow[])
     setLoading(false)
   }, [supabase])
@@ -96,89 +68,10 @@ export default function TengoPage() {
 
   const hoy = useMemo(() => fechaLocalYYYYMMDD(), [])
 
-  const onCrearActivo = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const v = parseFlexibleNumber(actValor)
-    if (!actConcepto.trim()) {
-      toast.error('Indique el concepto.')
-      return
-    }
-    if (!Number.isFinite(v) || v <= 0) {
-      toast.error('Indique el valor en COP.')
-      return
-    }
-    setActGuardando(true)
-    try {
-      const res = await crearActivo({ concepto: actConcepto.trim(), valor_cop: v, fecha: hoy })
-      if (!res.ok) {
-        toast.error(res.error)
-        return
-      }
-      toast.success('Registro guardado')
-      setActConcepto('')
-      setActValor('')
-      await cargar()
-    } catch (err: unknown) {
-      toast.error(errorMessage(err))
-    } finally {
-      setActGuardando(false)
-    }
-  }
-
-  const onEliminarActivo = async (id: string) => {
-    setElimActivo(id)
-    try {
-      const res = await eliminarActivo({ id })
-      if (!res.ok) {
-        toast.error(res.error)
-        return
-      }
-      await cargar()
-    } catch (err: unknown) {
-      toast.error(errorMessage(err))
-    } finally {
-      setElimActivo(null)
-    }
-  }
-
-  const startEditActivo = (r: ActivoRow) => {
-    setEditActivoId(r.id)
-    setDraftConcepto(r.concepto)
-    setDraftValor(r.valor_cop !== 0 ? formatMilesEs(r.valor_cop, 0) : '')
-  }
-
-  const cancelEditActivo = () => {
-    setEditActivoId(null)
-    setDraftConcepto('')
-    setDraftValor('')
-  }
-
-  const saveEditActivo = async (id: string) => {
-    const v = parseFlexibleNumber(draftValor)
-    if (!draftConcepto.trim()) {
-      toast.error('Indique el concepto.')
-      return
-    }
-    if (!Number.isFinite(v) || v <= 0) {
-      toast.error('Valor inválido.')
-      return
-    }
-    setSavingActivo(true)
-    try {
-      const res = await actualizarActivo({ id, concepto: draftConcepto.trim(), valor_cop: v })
-      if (!res.ok) {
-        toast.error(res.error)
-        return
-      }
-      toast.success('Actualizado')
-      cancelEditActivo()
-      await cargar()
-    } catch (err: unknown) {
-      toast.error(errorMessage(err))
-    } finally {
-      setSavingActivo(false)
-    }
-  }
+  const totalValoracionCop = useMemo(
+    () => arqueo.reduce((s, r) => s + Number(r.cantidad) * Number(r.precio_compra), 0),
+    [arqueo]
+  )
 
   const onCrearArqueo = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -286,147 +179,6 @@ export default function TengoPage() {
 
   return (
     <main className="mx-auto max-w-4xl space-y-8 text-base text-black">
-      <section className="overflow-hidden rounded-xl border border-slate-200 border-l-[4px] border-l-emerald-600 bg-white shadow-md">
-        <form onSubmit={(e) => void onCrearActivo(e)} className="border-b border-slate-100 p-4">
-          <div className="grid gap-4 sm:grid-cols-12 sm:items-end">
-            <div className="sm:col-span-6">
-              <label className="label text-base" htmlFor="act-concepto">
-                Concepto
-              </label>
-              <input
-                id="act-concepto"
-                className="input-field min-h-[48px] px-3 py-2.5 text-base"
-                value={actConcepto}
-                onChange={(e) => setActConcepto(e.target.value)}
-                placeholder="Ej. Base Caja"
-                autoComplete="off"
-              />
-            </div>
-            <div className="sm:col-span-4">
-              <MoneyTextField
-                id="act-valor"
-                label="Valor (COP)"
-                maxFrac={0}
-                value={actValor}
-                onChange={setActValor}
-                inputClassName="input-field input-numeric min-h-[48px] px-3 py-2.5 text-base"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <button
-                type="submit"
-                disabled={actGuardando}
-                className="btn-primary mt-6 min-h-[48px] w-full justify-center text-base font-semibold sm:mt-8"
-              >
-                {actGuardando ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Agregar'}
-              </button>
-            </div>
-          </div>
-        </form>
-
-        <div className="overflow-x-auto p-2">
-          <table className="w-full min-w-[520px] border-collapse text-left text-base">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50">
-                <th className="px-3 py-3 font-semibold text-slate-800">Concepto</th>
-                <th className="px-3 py-3 text-right font-semibold text-slate-800">Valor COP</th>
-                <th className="w-28 px-2 py-3 text-center font-semibold text-slate-800">Editar</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={3} className="px-3 py-8 text-center text-slate-500">
-                    …
-                  </td>
-                </tr>
-              ) : activos.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="px-3 py-8 text-center text-slate-500">
-                    Sin activos aún.
-                  </td>
-                </tr>
-              ) : (
-                activos.map((r) =>
-                  editActivoId === r.id ? (
-                    <tr key={r.id} className="border-b border-slate-100 bg-amber-50/40">
-                      <td className="px-3 py-2 align-middle">
-                        <input
-                          className="input-field min-h-[44px] text-base"
-                          value={draftConcepto}
-                          onChange={(e) => setDraftConcepto(e.target.value)}
-                        />
-                      </td>
-                      <td className="px-3 py-2 align-middle">
-                        <MoneyTextField
-                          id={`edit-val-${r.id}`}
-                          label=""
-                          omitLabel
-                          maxFrac={0}
-                          value={draftValor}
-                          onChange={setDraftValor}
-                          inputClassName="input-field input-numeric min-h-[44px] text-base"
-                        />
-                      </td>
-                      <td className="px-2 py-2 align-middle">
-                        <div className="flex justify-center gap-1">
-                          <button
-                            type="button"
-                            title="Guardar"
-                            disabled={savingActivo}
-                            onClick={() => void saveEditActivo(r.id)}
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
-                          >
-                            {savingActivo ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}
-                          </button>
-                          <button
-                            type="button"
-                            title="Cancelar"
-                            disabled={savingActivo}
-                            onClick={cancelEditActivo}
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                          >
-                            <X className="h-5 w-5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    <tr key={r.id} className="border-b border-slate-100">
-                      <td className="px-3 py-3 font-medium text-slate-900">{r.concepto}</td>
-                      <td className="px-3 py-3 text-right font-mono text-lg font-semibold tabular-nums">
-                        {formatCOP(Number(r.valor_cop))}
-                      </td>
-                      <td className="px-2 py-2">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            title="Editar"
-                            onClick={() => startEditActivo(r)}
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
-                          >
-                            <Pencil className="h-5 w-5" />
-                          </button>
-                          <button
-                            type="button"
-                            title="Eliminar"
-                            disabled={elimActivo === r.id}
-                            onClick={() => void onEliminarActivo(r.id)}
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
-                          >
-                            {elimActivo === r.id ? <Loader2 className="h-5 w-5 animate-spin" /> : <Trash2 className="h-5 w-5" />}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                )
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <section className="overflow-hidden rounded-xl border border-slate-200 border-l-[4px] border-l-sky-600 bg-white shadow-md">
         <form onSubmit={(e) => void onCrearArqueo(e)} className="border-b border-slate-100 p-4">
           <div className="grid gap-4 sm:grid-cols-12 sm:items-end">
@@ -586,6 +338,19 @@ export default function TengoPage() {
                 })
               )}
             </tbody>
+            {!loading && arqueo.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-slate-50">
+                  <td colSpan={4} className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-700">
+                    Valoración total (COP)
+                  </td>
+                  <td className="px-3 py-3 text-right font-mono text-3xl font-bold tabular-nums text-slate-900">
+                    {formatCOP(totalValoracionCop)}
+                  </td>
+                  <td className="bg-slate-50" />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </section>

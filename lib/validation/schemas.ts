@@ -122,35 +122,6 @@ export const finalizarCierreSchema = z.object({
   aperturas: montosRecord.optional(),
 })
 
-/** Activo en COP (patrimonio declarado en Tengo). */
-export const crearActivoSchema = z.object({
-  concepto: z
-    .string()
-    .min(1, 'Indique el concepto.')
-    .max(120)
-    .transform((s) => safePlainText(s, 120))
-    .refine((s) => s.length > 0, { message: 'Indique el concepto.' }),
-  valor_cop: z.coerce
-    .number({ invalid_type_error: 'Monto inválido' })
-    .positive('El valor debe ser mayor a 0')
-    .max(moneyMax, 'Monto demasiado grande'),
-  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida').optional(),
-})
-
-export const actualizarActivoSchema = z.object({
-  id: uuidSchema,
-  concepto: z
-    .string()
-    .min(1, 'Indique el concepto.')
-    .max(120)
-    .transform((s) => safePlainText(s, 120))
-    .refine((s) => s.length > 0, { message: 'Indique el concepto.' }),
-  valor_cop: z.coerce
-    .number({ invalid_type_error: 'Monto inválido' })
-    .positive('El valor debe ser mayor a 0')
-    .max(moneyMax, 'Monto demasiado grande'),
-})
-
 export const arqueoTengoUpsertSchema = z.object({
   id: uuidSchema.optional(),
   moneda_codigo: z
