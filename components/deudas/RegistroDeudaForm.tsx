@@ -7,7 +7,8 @@ import { toast } from 'sonner'
 import { registrarDeuda, abonarDeuda } from '@/app/actions/deudas'
 import { errorMessage } from '@/lib/errorMessage'
 import type { EstadoDeuda, RegistroDeuda } from '@/types/database'
-import { formatMoneyDivisa, formatMilesEs } from '@/lib/utils'
+import { formatCOP, formatMoneyDivisa, formatMilesEs } from '@/lib/utils'
+import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
@@ -20,8 +21,11 @@ type Props = {
 
 export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), [])
+  const { fecha: fechaOp, esHistorico } = useFechaOperativa()
   const { rows: divisasRows } = useDivisasMaestro()
   const opciones = useMemo(() => (divisasRows.length ? divisasRows : DIVISAS_FALLBACK), [divisasRows])
+
+  const [totalSnapshotCierreFmt, setTotalSnapshotCierreFmt] = useState<string | null>(null)
 
   const [responsable, setResponsable] = useState('')
   const [divisa, setDivisa] = useState('COP')
@@ -71,6 +75,36 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
     void cargar()
   }, [cargar])
 
+  useEffect(() => {
+    if (!esHistorico) {
+      setTotalSnapshotCierreFmt(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user || cancelled) return
+      const { data } = await supabase
+        .from('balances_diarios')
+        .select('me_deben_total,debo_total')
+        .eq('usuario_id', user.id)
+        .eq('fecha', fechaOp)
+        .maybeSingle()
+      if (cancelled) return
+      if (!data) {
+        setTotalSnapshotCierreFmt(null)
+        return
+      }
+      const n = tipo === 'DEBEN' ? Number(data.me_deben_total) : Number(data.debo_total)
+      setTotalSnapshotCierreFmt(formatCOP(n))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [esHistorico, fechaOp, tipo, supabase])
+
   const totalesPorDivisa = useMemo(() => {
     const m = new Map<string, number>()
     for (const row of lista) {
@@ -83,6 +117,10 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
 
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (esHistorico) {
+      toast.error('No puede registrar deudas en una fecha histórica.')
+      return
+    }
     setLoading(true)
     try {
       const parsedMonto = parseFlexibleNumber(monto)
@@ -152,6 +190,22 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 text-base text-black">
+      {esHistorico ? (
+        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+          <p>
+            Viendo datos históricos del <span className="font-mono font-semibold">{fechaOp}</span>. La lista muestra deudas
+            vigentes; el total en COP del backup de cierre ese día es referencial.
+          </p>
+          {totalSnapshotCierreFmt ? (
+            <p className="font-mono text-base font-semibold text-slate-900">
+              Total en COP al cierre ({tipo === 'DEBEN' ? 'Me deben' : 'Debo'}): {totalSnapshotCierreFmt}
+            </p>
+          ) : (
+            <p className="text-slate-600">Sin snapshot en balances_diarios para esa fecha.</p>
+          )}
+        </div>
+      ) : null}
+
       <form onSubmit={guardar} noValidate className="card-pro space-y-3 p-4">
         <div>
           <label className="label" htmlFor="resp">
@@ -164,13 +218,20 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
             onChange={(e) => setResponsable(e.target.value)}
             required
             autoComplete="off"
+            disabled={esHistorico}
           />
         </div>
         <div>
           <label className="label" htmlFor="div">
             Divisa
           </label>
-          <select id="div" className="input-field min-h-[48px] py-2.5 text-base" value={divisa} onChange={(e) => setDivisa(e.target.value)}>
+          <select
+            id="div"
+            className="input-field min-h-[48px] py-2.5 text-base"
+            value={divisa}
+            onChange={(e) => setDivisa(e.target.value)}
+            disabled={esHistorico}
+          >
             {opciones.map((d) => (
               <option key={d.codigo} value={d.codigo}>
                 {d.codigo} — {d.nombre_completo}
@@ -182,11 +243,12 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
           id="monto"
           label="Monto"
           maxFrac={2}
+          disabled={esHistorico}
           value={monto}
           onChange={setMonto}
           inputClassName="input-field input-numeric min-h-[48px] text-base"
         />
-        <button type="submit" disabled={loading} className="btn-primary min-h-[48px] w-full text-base font-semibold">
+        <button type="submit" disabled={loading || esHistorico} className="btn-primary min-h-[48px] w-full text-base font-semibold">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
         </button>
       </form>
@@ -221,7 +283,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
                       <button
                         type="button"
                         title="Abonar"
-                        disabled={abonandoId === r.id}
+                        disabled={abonandoId === r.id || esHistorico}
                         onClick={() => abrirAbono(r.id)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
                       >

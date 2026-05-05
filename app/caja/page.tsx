@@ -5,7 +5,8 @@ import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { guardarCajaDiaria, finalizarCierreCaja } from '@/app/actions/caja'
-import { dayBoundsLocal, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
+import { dayBoundsLocal, formatMilesEs } from '@/lib/utils'
+import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
@@ -42,10 +43,9 @@ const cellInput =
 
 export default function CajaPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), [])
+  const { fecha, esHistorico } = useFechaOperativa()
   const { rows: divisasRows } = useDivisasMaestro()
   const divisas = useMemo(() => (divisasRows.length ? divisasRows : DIVISAS_FALLBACK), [divisasRows])
-
-  const [fecha, setFecha] = useState(() => fechaLocalYYYYMMDD())
   const [aperturaMap, setAperturaMap] = useState<Record<string, number>>({})
   const [cierreMap, setCierreMap] = useState<Record<string, number>>({})
   const [montosApertura, setMontosApertura] = useState<Record<string, string>>({})
@@ -215,14 +215,12 @@ export default function CajaPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 text-base text-black">
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <input
-          type="date"
-          value={fecha}
-          onChange={(e) => setFecha(e.target.value)}
-          className="input-field min-h-[48px] max-w-[200px] text-base"
-        />
-      </div>
+      {esHistorico ? (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          Visualización de la caja del <span className="font-mono font-semibold">{fecha}</span>. Para cerrar el día y generar el backup,
+          cambie la fecha operativa a hoy en la barra superior.
+        </p>
+      ) : null}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 border-l-[4px] border-l-slate-800 bg-white shadow-md">
         {loading ? (
@@ -266,6 +264,7 @@ export default function CajaPage() {
                           label={`Apertura ${f.codigo}`}
                           omitLabel
                           maxFrac={2}
+                          disabled={esHistorico}
                           value={montosApertura[f.codigo] ?? ''}
                           onChange={(v) => {
                             setMontosApertura((prev) => {
@@ -287,6 +286,7 @@ export default function CajaPage() {
                           label={`Cierre manual ${f.codigo}`}
                           omitLabel
                           maxFrac={2}
+                          disabled={esHistorico}
                           value={f.manualStr}
                           onChange={(v) => setMontosManualCierre((prev) => ({ ...prev, [f.codigo]: v }))}
                           className="flex justify-center"
@@ -304,7 +304,7 @@ export default function CajaPage() {
             <div className="flex justify-center border-t border-slate-200 px-3 py-4">
               <button
                 type="button"
-                disabled={finalizando}
+                disabled={finalizando || esHistorico}
                 onClick={() => void onFinalizarCierre()}
                 className="min-h-[52px] min-w-[220px] rounded-xl bg-gradient-to-b from-slate-800 to-slate-950 px-8 text-base font-bold text-white shadow-lg hover:from-slate-700 hover:to-slate-900 disabled:opacity-50"
               >

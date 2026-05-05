@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { Loader2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { formatCOP, isoTimestampForPostgrestFilter } from '@/lib/utils'
+import { formatCOP, dayBoundsLocal } from '@/lib/utils'
+import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 import { eliminarGasto, registrarGasto } from '@/app/actions/gastos'
 import { errorMessage } from '@/lib/errorMessage'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
@@ -19,6 +20,7 @@ type GastoRow = {
 
 export default function GastosPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), [])
+  const { fecha: fechaOperativa, esHistorico } = useFechaOperativa()
   const [concepto, setConcepto] = useState('')
   const [monto, setMonto] = useState('')
   const [loading, setLoading] = useState(false)
@@ -36,15 +38,14 @@ export default function GastosPage() {
       setListLoading(false)
       return
     }
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const desde = isoTimestampForPostgrestFilter(today)
+    const { desde, hastaExclusive } = dayBoundsLocal(fechaOperativa)
 
     const { data, error } = await supabase
       .from('gastos')
       .select('id,concepto,monto_cop,fecha')
       .eq('usuario_id', user.id)
       .gte('fecha', desde)
+      .lt('fecha', hastaExclusive)
       .order('fecha', { ascending: false })
 
     if (error) {
@@ -61,7 +62,7 @@ export default function GastosPage() {
       )
     }
     setListLoading(false)
-  }, [supabase])
+  }, [supabase, fechaOperativa])
 
   useEffect(() => {
     void cargar()
@@ -117,7 +118,18 @@ export default function GastosPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 text-base text-black">
-      <form onSubmit={guardar} noValidate className="card-pro flex flex-col gap-3 border border-slate-200 p-4 sm:flex-row sm:flex-wrap sm:items-end">
+      {esHistorico ? (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          Gastos registrados el <span className="font-mono font-semibold">{fechaOperativa}</span>. Para añadir gastos nuevos,
+          seleccione la fecha de hoy en la barra superior.
+        </p>
+      ) : null}
+
+      <form
+        onSubmit={guardar}
+        noValidate
+        className="card-pro flex flex-col gap-3 border border-slate-200 p-4 sm:flex-row sm:flex-wrap sm:items-end"
+      >
         <div className="min-w-0 flex-1">
           <label className="label" htmlFor="g-concepto">
             Concepto
@@ -128,6 +140,7 @@ export default function GastosPage() {
             value={concepto}
             onChange={(e) => setConcepto(e.target.value)}
             autoComplete="off"
+            disabled={esHistorico}
           />
         </div>
         <MoneyTextField
@@ -135,10 +148,15 @@ export default function GastosPage() {
           label="Monto COP"
           maxFrac={2}
           className="w-full sm:w-40"
+          disabled={esHistorico}
           value={monto}
           onChange={setMonto}
         />
-        <button type="submit" disabled={loading} className="btn-primary min-h-[48px] w-full shrink-0 px-6 text-base font-semibold sm:w-auto">
+        <button
+          type="submit"
+          disabled={loading || esHistorico}
+          className="btn-primary min-h-[48px] w-full shrink-0 px-6 text-base font-semibold sm:w-auto"
+        >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
         </button>
       </form>
@@ -171,7 +189,7 @@ export default function GastosPage() {
                       <button
                         type="button"
                         title="Eliminar"
-                        disabled={deletingId === r.id}
+                        disabled={deletingId === r.id || esHistorico}
                         onClick={() => void borrar(r.id)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-700 bg-white text-red-800 hover:bg-red-50 disabled:opacity-50"
                       >
@@ -190,7 +208,7 @@ export default function GastosPage() {
                   <td colSpan={2} className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-700">
                     Total (COP)
                   </td>
-                  <td className="px-3 py-3 text-right font-mono text-3xl font-bold tabular-nums text-slate-900">
+                  <td className="px-3 py-3 text-right font-mono text-lg font-bold tabular-nums text-slate-900">
                     {formatCOP(totalGastosCop)}
                   </td>
                   <td className="bg-slate-50" />

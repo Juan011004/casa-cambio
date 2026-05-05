@@ -15,6 +15,7 @@ import {
 } from '@/lib/cierreAuditoria'
 import { saldoPromedioPorMonedaDesdeCierres } from '@/lib/ultimoCierre'
 import type { Database } from '@/database'
+import { upsertBalanceDiarioSnapshot } from '@/app/actions/balanceDiario'
 
 type CierreInsert = Database['public']['Tables']['cierres_diarios']['Insert']
 
@@ -249,6 +250,16 @@ export async function finalizarCierreCaja(raw: unknown): Promise<ActionResult> {
       if (invErr) {
         logServerError('finalizarCierreCaja/inventario', new Error(invErr.message))
         return { ok: false, error: 'Cierre guardado pero falló la actualización de inventario.' }
+      }
+    }
+
+    const snap = await upsertBalanceDiarioSnapshot({ fecha })
+    if (!snap.ok) {
+      return {
+        ok: false,
+        error:
+          snap.error ??
+          'Cierre guardado pero no se pudo crear el backup en balances_diarios. Revise la tabla en Supabase.',
       }
     }
 

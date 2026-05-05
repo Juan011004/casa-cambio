@@ -41,3 +41,15 @@ export function valorCierresManualCop(
   }
   return s
 }
+
+/** Suma en COP de montos en divisa (TRM actual), incluyendo COP con tasa 1. */
+export function totalDeudasMontoCop(
+  rows: { divisa: string; monto: number }[],
+  copMap: CopPorUnidad
+): number {
+  let s = 0
+  for (const r of rows) {
+    s += montoDivisaEnCop(Number(r.monto), r.divisa, copMap)
+  }
+  return s
+}

@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Download, Package } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
+import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 import { dayBoundsLocal, formatCOP, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
+import { sumGananciaHistoricaHastaFecha, sumGananciaHistoricaTotal } from '@/lib/gananciaCierres'
+import { saldoDeudasNetoCop, totalDeudasMontoCop } from '@/lib/balanceCop'
+import type { Database } from '@/database'
 import { gananciaDiaPonderadaCop } from '@/lib/cierreAuditoria'
 import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '@/lib/ultimoCierre'
 import { exportAuditoriaVivoExcel } from '@/lib/exportCierresExcel'
@@ -11,11 +15,18 @@ import { obtenerTrmMercado } from '@/app/actions/trm'
 import { TRM_TICKER_ORDER, type TrmMercadoFila } from '@/lib/trm-ticker'
 import { CargaInicialDialog } from '@/components/CargaInicialDialog'
 import { filasAuditoriaVivo, monedasParaAuditoria } from '@/lib/auditoriaVivo'
-import { saldoDeudasNetoCop } from '@/lib/balanceCop'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import type { Transaccion } from '@/types/database'
 import type { CopPorUnidad } from '@/lib/trm'
+
+type BalanceSnapRow = Database['public']['Tables']['balances_diarios']['Row']
+
+type DetalleTarjetasSnap = {
+  compras?: { codigo: string; valor: number }[]
+  ventas?: { codigo: string; valor: number }[]
+  ganancia?: { codigo: string; valor_cop: number }[]
+}
 
 const FLAGS: Record<string, string> = {
   USD: '🇺🇸',
@@ -68,24 +79,6 @@ function gananciaListaDesdeTx(
   return out
 }
 
-/** Suma `ganancia_calculada` del día de cierre más reciente estrictamente anterior a `fechaDia`. */
-function gananciaUltimoCierreAntesDe(
-  rows: { fecha: string | unknown; ganancia_calculada: number | string | null | unknown }[],
-  fechaDia: string
-): number {
-  const byDate = new Map<string, number>()
-  for (const r of rows) {
-    const key = String(r.fecha).slice(0, 10)
-    if (key >= fechaDia) continue
-    const g = Number(r.ganancia_calculada ?? 0)
-    if (!Number.isFinite(g)) continue
-    byDate.set(key, (byDate.get(key) ?? 0) + g)
-  }
-  const fechas = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a))
-  const ultima = fechas[0]
-  return ultima ? (byDate.get(ultima) ?? 0) : 0
-}
-
 function sumDeudasPendientes(rows: { divisa: string; monto: number }[]): { codigo: string; valor: number }[] {
   const m = new Map<string, number>()
   for (const r of rows) {
@@ -96,19 +89,6 @@ function sumDeudasPendientes(rows: { divisa: string; monto: number }[]): { codig
     .filter(([, v]) => Math.abs(v) > 1e-10)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([codigo, valor]) => ({ codigo, valor }))
-}
-
-function sumDeudasTotalCop(rows: { divisa: string; monto: number }[], copMap: CopPorUnidad): number {
-  let s = 0
-  for (const r of rows) {
-    const div = r.divisa
-    const m = Number(r.monto)
-    if (!Number.isFinite(m) || m === 0) continue
-    const tasa = div === 'COP' ? 1 : Number(copMap[div] ?? 0)
-    if (!Number.isFinite(tasa) || tasa <= 0) continue
-    s += m * tasa
-  }
-  return s
 }
 
 function TarjetaBalanceCop({
@@ -202,7 +182,7 @@ function TarjetaCompacta({
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
             {totalFooterLabel ?? 'Total (COP)'}
           </p>
-          <p className="truncate font-mono text-2xl font-bold tabular-nums text-slate-900">{formatCOP(totalCopFooter)}</p>
+          <p className="truncate font-mono text-lg font-bold tabular-nums text-slate-900">{formatCOP(totalCopFooter)}</p>
         </div>
       )}
     </div>
@@ -212,8 +192,14 @@ function TarjetaCompacta({
 export default function DashboardPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), [])
   const { rows: divisasMaestro } = useDivisasMaestro()
-  const [fechaDia, setFechaDia] = useState(() => fechaLocalYYYYMMDD())
+  const { fecha: fechaDia } = useFechaOperativa()
+
   const [loading, setLoading] = useState(true)
+  const [snapshotMode, setSnapshotMode] = useState(false)
+  const [balanceSnap, setBalanceSnap] = useState<BalanceSnapRow | null>(null)
+  const [sinBackupHistorico, setSinBackupHistorico] = useState(false)
+  const [prevDeboTenerCop, setPrevDeboTenerCop] = useState<number | null>(null)
+
   const [txRows, setTxRows] = useState<Transaccion[]>([])
   const [debenRows, setDebenRows] = useState<{ divisa: string; monto: number }[]>([])
   const [deboRows, setDeboRows] = useState<{ divisa: string; monto: number }[]>([])
@@ -226,7 +212,6 @@ export default function DashboardPage() {
   const [invRows, setInvRows] = useState<{ divisa: string; cantidad_actual: number }[]>([])
   const [sumArqueoCop, setSumArqueoCop] = useState(0)
   const [gastosDiaCop, setGastosDiaCop] = useState(0)
-  const [gananciaUltimoCierreCop, setGananciaUltimoCierreCop] = useState(0)
   const [acumGananciasCop, setAcumGananciasCop] = useState(0)
   const [acumGastosCop, setAcumGastosCop] = useState(0)
 
@@ -236,6 +221,77 @@ export default function DashboardPage() {
       data: { user },
     } = await supabase.auth.getUser()
     const { desde, hastaExclusive } = dayBoundsLocal(fechaDia)
+    const finAcumExclusive = hastaExclusive
+    const hoy = fechaLocalYYYYMMDD()
+
+    if (!user?.id) {
+      setTxRows([])
+      setDebenRows([])
+      setDeboRows([])
+      setCierresPrevRows([])
+      setInvRows([])
+      setSumArqueoCop(0)
+      setGastosDiaCop(0)
+      setAcumGananciasCop(0)
+      setAcumGastosCop(0)
+      setBalanceSnap(null)
+      setSnapshotMode(false)
+      setSinBackupHistorico(false)
+      setPrevDeboTenerCop(null)
+      setLoading(false)
+      return
+    }
+
+    if (fechaDia < hoy) {
+      const snapRes = await supabase
+        .from('balances_diarios')
+        .select('*')
+        .eq('usuario_id', user.id)
+        .eq('fecha', fechaDia)
+        .maybeSingle()
+
+      if (snapRes.data) {
+        const snap = snapRes.data as BalanceSnapRow
+        setBalanceSnap(snap)
+        setSnapshotMode(true)
+        setSinBackupHistorico(false)
+        setPrevDeboTenerCop(null)
+        setTxRows([])
+        setDebenRows([])
+        setDeboRows([])
+        setCierresPrevRows([])
+        setInvRows([])
+        setSumArqueoCop(0)
+        setGastosDiaCop(Number(snap.gastos_dia))
+
+        const [acumGanRes, acumGastRes] = await Promise.all([
+          supabase.from('cierres_diarios').select('fecha,ganancia_calculada').eq('usuario_id', user.id),
+          supabase.from('gastos').select('monto_cop').eq('usuario_id', user.id).lt('fecha', finAcumExclusive),
+        ])
+
+        setAcumGananciasCop(
+          sumGananciaHistoricaHastaFecha(
+            (acumGanRes.data ?? []) as { fecha: string; ganancia_calculada: unknown }[],
+            fechaDia
+          )
+        )
+        setAcumGastosCop(
+          acumGastRes.error
+            ? 0
+            : (acumGastRes.data ?? []).reduce((s, r) => s + Number((r as { monto_cop: number }).monto_cop ?? 0), 0)
+        )
+
+        setLoading(false)
+        return
+      }
+      setSnapshotMode(false)
+      setBalanceSnap(null)
+      setSinBackupHistorico(true)
+    } else {
+      setSnapshotMode(false)
+      setBalanceSnap(null)
+      setSinBackupHistorico(false)
+    }
 
     let txQuery = supabase
       .from('transacciones')
@@ -243,7 +299,7 @@ export default function DashboardPage() {
       .gte('fecha', desde)
       .lt('fecha', hastaExclusive)
       .order('fecha', { ascending: false })
-    if (user?.id) txQuery = txQuery.eq('usuario_id', user.id)
+    txQuery = txQuery.eq('usuario_id', user.id)
 
     let debenQ = supabase.from('deudas').select('divisa,monto').eq('tipo', 'DEBEN').eq('estado', 'PENDIENTE')
     let deboQ = supabase.from('deudas').select('divisa,monto').eq('tipo', 'DEBO').eq('estado', 'PENDIENTE')
@@ -254,36 +310,37 @@ export default function DashboardPage() {
     let invQ = supabase.from('inventario').select('divisa,cantidad_actual')
     let arqQ = supabase.from('arqueo_tengo').select('cantidad,precio_compra')
     let gastosQ = supabase.from('gastos').select('monto_cop').gte('fecha', desde).lt('fecha', hastaExclusive)
-    let cierresGanQ = supabase
-      .from('cierres_diarios')
-      .select('fecha,ganancia_calculada')
+    let prevBalQ = supabase
+      .from('balances_diarios')
+      .select('debo_tener_total')
+      .eq('usuario_id', user.id)
       .lt('fecha', fechaDia)
-    let cierresAcumQ = supabase.from('cierres_diarios').select('ganancia_calculada')
-    let gastosAcumQ = supabase.from('gastos').select('monto_cop')
-    if (user?.id) {
-      debenQ = debenQ.eq('usuario_id', user.id)
-      deboQ = deboQ.eq('usuario_id', user.id)
-      cierresPrevQ = cierresPrevQ.eq('usuario_id', user.id)
-      invQ = invQ.eq('usuario_id', user.id)
-      arqQ = arqQ.eq('usuario_id', user.id)
-      gastosQ = gastosQ.eq('usuario_id', user.id)
-      cierresGanQ = cierresGanQ.eq('usuario_id', user.id)
-      cierresAcumQ = cierresAcumQ.eq('usuario_id', user.id)
-      gastosAcumQ = gastosAcumQ.eq('usuario_id', user.id)
-    }
+      .order('fecha', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    let cierresAcumQ = supabase.from('cierres_diarios').select('fecha,ganancia_calculada').eq('usuario_id', user.id)
+    let gastosAcumQ = supabase.from('gastos').select('monto_cop').eq('usuario_id', user.id).lt('fecha', finAcumExclusive)
 
-    const [txRes, ndRes, dbRes, cPrevRes, invRes, arqRes, gastRes, ganRes, acumGanRes, acumGastRes] = await Promise.all([
-      txQuery,
-      debenQ,
-      deboQ,
-      cierresPrevQ,
-      invQ,
-      arqQ,
-      gastosQ,
-      cierresGanQ,
-      cierresAcumQ,
-      gastosAcumQ,
-    ])
+    debenQ = debenQ.eq('usuario_id', user.id)
+    deboQ = deboQ.eq('usuario_id', user.id)
+    cierresPrevQ = cierresPrevQ.eq('usuario_id', user.id)
+    invQ = invQ.eq('usuario_id', user.id)
+    arqQ = arqQ.eq('usuario_id', user.id)
+    gastosQ = gastosQ.eq('usuario_id', user.id)
+
+    const [txRes, ndRes, dbRes, cPrevRes, invRes, arqRes, gastRes, prevBalRes, acumGanRes, acumGastRes] =
+      await Promise.all([
+        txQuery,
+        debenQ,
+        deboQ,
+        cierresPrevQ,
+        invQ,
+        arqQ,
+        gastosQ,
+        prevBalQ,
+        cierresAcumQ,
+        gastosAcumQ,
+      ])
 
     setTxRows((txRes.data ?? []) as Transaccion[])
     setDebenRows(
@@ -299,9 +356,7 @@ export default function DashboardPage() {
       }))
     )
     setCierresPrevRows((cPrevRes.error ? [] : cPrevRes.data) as CierreRowParaArrastre[])
-    setInvRows(
-      (invRes.error ? [] : invRes.data ?? []) as { divisa: string; cantidad_actual: number }[]
-    )
+    setInvRows((invRes.error ? [] : invRes.data ?? []) as { divisa: string; cantidad_actual: number }[])
     setSumArqueoCop(
       arqRes.error
         ? 0
@@ -315,13 +370,18 @@ export default function DashboardPage() {
         ? 0
         : (gastRes.data ?? []).reduce((s, r) => s + Number((r as { monto_cop: number }).monto_cop), 0)
     )
-    setGananciaUltimoCierreCop(
-      ganRes.error ? 0 : gananciaUltimoCierreAntesDe((ganRes.data ?? []) as { fecha: string; ganancia_calculada: unknown }[], fechaDia)
+
+    const prevTotal = prevBalRes.data?.debo_tener_total
+    setPrevDeboTenerCop(
+      prevTotal != null && Number.isFinite(Number(prevTotal)) ? Number(prevTotal) : null
     )
+
     setAcumGananciasCop(
       acumGanRes.error
         ? 0
-        : (acumGanRes.data ?? []).reduce((s, r) => s + Number((r as { ganancia_calculada: number }).ganancia_calculada ?? 0), 0)
+        : sumGananciaHistoricaTotal(
+            (acumGanRes.data ?? []) as { fecha: string; ganancia_calculada: unknown }[]
+          )
     )
     setAcumGastosCop(
       acumGastRes.error
@@ -356,6 +416,11 @@ export default function DashboardPage() {
           { event: '*', schema: 'public', table: 'gastos', filter: `usuario_id=eq.${user.id}` },
           () => void load()
         )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'balances_diarios', filter: `usuario_id=eq.${user.id}` },
+          () => void load()
+        )
         .subscribe()
     })()
 
@@ -381,21 +446,55 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const comprasLista = useMemo(() => sumTxMontoDivisa(txRows, 'COMPRA'), [txRows])
-  const ventasLista = useMemo(() => sumTxMontoDivisa(txRows, 'VENTA'), [txRows])
   const ultimoCierrePorMoneda = useMemo(() => saldoPromedioPorMonedaDesdeCierres(cierresPrevRows), [cierresPrevRows])
 
-  const gananciaLista = useMemo(
-    () => gananciaListaDesdeTx(txRows, ultimoCierrePorMoneda),
-    [txRows, ultimoCierrePorMoneda]
-  )
+  const comprasLista = useMemo(() => {
+    if (snapshotMode && balanceSnap?.detalle_tarjetas) {
+      const dt = balanceSnap.detalle_tarjetas as DetalleTarjetasSnap
+      return dt.compras ?? []
+    }
+    return sumTxMontoDivisa(txRows, 'COMPRA')
+  }, [snapshotMode, balanceSnap, txRows])
 
-  const totalGananciaDiaCop = useMemo(
-    () => gananciaLista.reduce((s, x) => s + x.valor, 0),
-    [gananciaLista]
-  )
-  const nosDebenLista = useMemo(() => sumDeudasPendientes(debenRows), [debenRows])
-  const debemosLista = useMemo(() => sumDeudasPendientes(deboRows), [deboRows])
+  const ventasLista = useMemo(() => {
+    if (snapshotMode && balanceSnap?.detalle_tarjetas) {
+      const dt = balanceSnap.detalle_tarjetas as DetalleTarjetasSnap
+      return dt.ventas ?? []
+    }
+    return sumTxMontoDivisa(txRows, 'VENTA')
+  }, [snapshotMode, balanceSnap, txRows])
+
+  const gananciaLista = useMemo(() => {
+    if (snapshotMode && balanceSnap?.detalle_tarjetas) {
+      const dt = balanceSnap.detalle_tarjetas as DetalleTarjetasSnap
+      const g = dt.ganancia ?? []
+      return g.map((x) => ({ codigo: x.codigo, valor: Number(x.valor_cop) }))
+    }
+    return gananciaListaDesdeTx(txRows, ultimoCierrePorMoneda)
+  }, [snapshotMode, balanceSnap, txRows, ultimoCierrePorMoneda])
+
+  const totalGananciaDiaCop = useMemo(() => {
+    if (snapshotMode && balanceSnap) return Number(balanceSnap.ganancias_dia)
+    return gananciaLista.reduce((s, x) => s + x.valor, 0)
+  }, [snapshotMode, balanceSnap, gananciaLista])
+
+  const nosDebenLista = useMemo(() => {
+    if (snapshotMode && balanceSnap?.detalle_deudas) {
+      const d = balanceSnap.detalle_deudas as { deben?: { codigo: string; valor_divisa: number }[] }
+      const arr = d.deben ?? []
+      return arr.map((x) => ({ codigo: x.codigo, valor: Number(x.valor_divisa) }))
+    }
+    return sumDeudasPendientes(debenRows)
+  }, [snapshotMode, balanceSnap, debenRows])
+
+  const debemosLista = useMemo(() => {
+    if (snapshotMode && balanceSnap?.detalle_deudas) {
+      const d = balanceSnap.detalle_deudas as { debo?: { codigo: string; valor_divisa: number }[] }
+      const arr = d.debo ?? []
+      return arr.map((x) => ({ codigo: x.codigo, valor: Number(x.valor_divisa) }))
+    }
+    return sumDeudasPendientes(deboRows)
+  }, [snapshotMode, balanceSnap, deboRows])
 
   const copMap = useMemo<CopPorUnidad>(
     () =>
@@ -416,7 +515,7 @@ export default function DashboardPage() {
     [rates]
   )
 
-  const balanceLoading = loading || ratesLoading
+  const balanceLoading = loading || (ratesLoading && !snapshotMode)
 
   const monedasAudit = useMemo(
     () => monedasParaAuditoria(txRows, invRows, ultimoCierrePorMoneda),
@@ -430,16 +529,31 @@ export default function DashboardPage() {
 
   /** Arqueo por divisa valorado a precio de compra + deudas (me deben − debo), COP. */
   const tengoCop = useMemo(() => {
+    if (snapshotMode && balanceSnap) return Number(balanceSnap.tengo_total)
     return sumArqueoCop + saldoDeudasNetoCop(debenRows, deboRows, copMap)
-  }, [sumArqueoCop, debenRows, deboRows, copMap])
+  }, [snapshotMode, balanceSnap, sumArqueoCop, debenRows, deboRows, copMap])
 
-  /** Tengo + ganancia del último cierre guardado (antes del día operativo) − gastos del día. */
+  /**
+   * Debo tener = último backup `debo_tener_total` anterior al día + ganancia del día − gastos del día.
+   * Sin cadena previa: capital base `tengo` + ganancia del día − gastos del día.
+   */
   const deboTenerCop = useMemo(() => {
-    return tengoCop + gananciaUltimoCierreCop - gastosDiaCop
-  }, [tengoCop, gananciaUltimoCierreCop, gastosDiaCop])
+    if (snapshotMode && balanceSnap) return Number(balanceSnap.debo_tener_total)
+    if (prevDeboTenerCop != null && Number.isFinite(prevDeboTenerCop)) {
+      return prevDeboTenerCop + totalGananciaDiaCop - gastosDiaCop
+    }
+    return tengoCop + totalGananciaDiaCop - gastosDiaCop
+  }, [snapshotMode, balanceSnap, prevDeboTenerCop, totalGananciaDiaCop, gastosDiaCop, tengoCop])
 
-  const totalDebenCop = useMemo(() => sumDeudasTotalCop(debenRows, copMap), [debenRows, copMap])
-  const totalDeboCop = useMemo(() => sumDeudasTotalCop(deboRows, copMap), [deboRows, copMap])
+  const totalDebenCop = useMemo(() => {
+    if (snapshotMode && balanceSnap) return Number(balanceSnap.me_deben_total)
+    return totalDeudasMontoCop(debenRows, copMap)
+  }, [snapshotMode, balanceSnap, debenRows, copMap])
+
+  const totalDeboCop = useMemo(() => {
+    if (snapshotMode && balanceSnap) return Number(balanceSnap.debo_total)
+    return totalDeudasMontoCop(deboRows, copMap)
+  }, [snapshotMode, balanceSnap, deboRows, copMap])
   const utilidadNetaCop = useMemo(() => acumGananciasCop - acumGastosCop, [acumGananciasCop, acumGastosCop])
 
   const etiquetaMoneda = useMemo(() => {
@@ -460,14 +574,13 @@ export default function DashboardPage() {
 
   return (
     <main className="space-y-6 text-base text-black">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <input
-          type="date"
-          value={fechaDia}
-          onChange={(e) => setFechaDia(e.target.value)}
-          className="input-field min-h-[48px] max-w-[200px] text-base"
-        />
-      </div>
+      {sinBackupHistorico ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          No hay backup en <span className="font-mono font-semibold">{fechaDia}</span>. Los valores que ves son estimaciones en
+          tiempo real (no congelados); ejecute un cierre en Caja para generar el snapshot en{' '}
+          <span className="font-mono">balances_diarios</span>.
+        </p>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <TarjetaCompacta titulo="Compra" items={loading ? [] : comprasLista} accent="sky" />
@@ -589,16 +702,18 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              disabled={snapshotMode}
               onClick={() => setCargaInicialOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
             >
               <Package className="h-3.5 w-3.5" aria-hidden />
               Carga inicial
             </button>
             <button
               type="button"
+              disabled={snapshotMode || filasAuditVivo.length === 0}
               onClick={() => exportAuditoriaVivoExcel(filasAuditVivo, fechaDia, etiquetaMoneda)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-white"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-white disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5" aria-hidden />
               Excel

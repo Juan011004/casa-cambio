@@ -18,6 +18,7 @@ import {
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { PageTransition } from '@/components/layout/PageTransition'
+import { FechaOperativaProvider } from '@/components/fecha-operativa/FechaOperativaProvider'
 import { cn } from '@/lib/utils'
 
 const NO_SHELL_ROUTES = ['/login']
@@ -45,6 +46,7 @@ export function AppShell({ children }: AppShellProps) {
   if (hideShell) return <>{children}</>
 
   return (
+    <FechaOperativaProvider>
     <div className="flex min-h-screen bg-white text-base text-black">
       <Suspense
         fallback={
@@ -85,5 +87,6 @@ export function AppShell({ children }: AppShellProps) {
         </main>
       </div>
     </div>
+    </FechaOperativaProvider>
   )
 }

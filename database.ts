@@ -257,6 +257,50 @@ export interface Database {
         }
         Relationships: []
       }
+      balances_diarios: {
+        Row: {
+          id: string
+          usuario_id: string
+          fecha: string
+          tengo_total: number
+          debo_tener_total: number
+          ganancias_dia: number
+          gastos_dia: number
+          me_deben_total: number
+          debo_total: number
+          detalle_arqueo: Json | null
+          detalle_deudas: Json | null
+          detalle_tarjetas: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          usuario_id: string
+          fecha: string
+          tengo_total?: number
+          debo_tener_total?: number
+          ganancias_dia?: number
+          gastos_dia?: number
+          me_deben_total?: number
+          debo_total?: number
+          detalle_arqueo?: Json | null
+          detalle_deudas?: Json | null
+          detalle_tarjetas?: Json | null
+          created_at?: string
+        }
+        Update: {
+          tengo_total?: number
+          debo_tener_total?: number
+          ganancias_dia?: number
+          gastos_dia?: number
+          me_deben_total?: number
+          debo_total?: number
+          detalle_arqueo?: Json | null
+          detalle_deudas?: Json | null
+          detalle_tarjetas?: Json | null
+        }
+        Relationships: []
+      }
       pagos_deudas: {
         Row: {
           id: string

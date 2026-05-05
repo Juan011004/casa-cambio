@@ -10,6 +10,7 @@ type Props = {
   value: string
   onChange: (v: string) => void
   required?: boolean
+  disabled?: boolean
   maxFrac?: number
   className?: string
   inputClassName?: string
@@ -23,6 +24,7 @@ export function MoneyTextField({
   value,
   onChange,
   required,
+  disabled,
   maxFrac = 2,
   className,
   inputClassName = 'input-field input-numeric min-h-[42px] py-2 text-base',
@@ -55,6 +57,7 @@ export function MoneyTextField({
           if (e.target.value === '0' || e.target.value === '0,' || n === 0) onChange('')
         }}
         className={inputClassName}
+        disabled={disabled}
         autoComplete="off"
         required={required}
         inputMode="decimal"
