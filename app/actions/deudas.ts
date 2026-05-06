@@ -26,6 +26,7 @@ export async function registrarDeuda(raw: unknown): Promise<ActionResult<{ id: s
     } = await supabase.auth.getUser()
     if (userErr || !user?.id) return { ok: false, error: 'Sesión no válida.', code: 'AUTH' }
 
+    const fechaTs = parsed.data.fecha ? `${parsed.data.fecha}T12:00:00Z` : null
     const { data, error } = await supabase
       .from('deudas')
       .insert({
@@ -35,7 +36,7 @@ export async function registrarDeuda(raw: unknown): Promise<ActionResult<{ id: s
         divisa: parsed.data.divisa,
         monto: parsed.data.monto,
         estado: 'PENDIENTE',
-        ...(parsed.data.fecha ? { fecha: parsed.data.fecha } : null),
+        ...(fechaTs ? { fecha: fechaTs } : null),
       })
       .select('id')
       .single()

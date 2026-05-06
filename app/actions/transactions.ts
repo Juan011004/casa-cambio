@@ -25,6 +25,7 @@ export async function registrarCompra(
 
   try {
     const { divisa, cantidad, tasa, metodo_pago, fecha } = parsed.data
+    const fechaTs = fecha ? `${fecha}T12:00:00Z` : null
     const supabase = await serverClient()
 
     const {
@@ -45,7 +46,7 @@ export async function registrarCompra(
       total_cop,
       usuario_id: user.id,
       metodo_pago: metodo_pago as MetodoPago,
-      ...(fecha ? { fecha } : null),
+      ...(fechaTs ? { fecha: fechaTs } : null),
     })
 
     if (error) {
@@ -83,6 +84,7 @@ export async function registrarVenta(
 
   try {
     const { divisa, cantidad, tasa, metodo_pago, fecha } = parsed.data
+    const fechaTs = fecha ? `${fecha}T12:00:00Z` : null
     const supabase = await serverClient()
 
     const {
@@ -103,7 +105,7 @@ export async function registrarVenta(
       total_cop,
       usuario_id: user.id,
       metodo_pago: metodo_pago as MetodoPago,
-      ...(fecha ? { fecha } : null),
+      ...(fechaTs ? { fecha: fechaTs } : null),
     })
 
     if (error) {

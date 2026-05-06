@@ -26,13 +26,14 @@ export async function registrarGasto(raw: unknown): Promise<ActionResult<{ id: s
     } = await supabase.auth.getUser()
     if (userErr || !user) return { ok: false, error: 'Sesión no válida.', code: 'AUTH' }
 
+    const fechaTs = parsed.data.fecha ? `${parsed.data.fecha}T12:00:00Z` : null
     const { data, error } = await supabase
       .from('gastos')
       .insert({
         usuario_id: user.id,
         concepto: parsed.data.concepto,
         monto_cop: parsed.data.monto_cop,
-        ...(parsed.data.fecha ? { fecha: parsed.data.fecha } : null),
+        ...(fechaTs ? { fecha: fechaTs } : null),
       })
       .select('id')
       .single()
