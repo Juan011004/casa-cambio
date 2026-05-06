@@ -193,6 +193,7 @@ export default function DashboardPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), [])
   const { rows: divisasMaestro } = useDivisasMaestro()
   const { fecha: fechaDia } = useFechaOperativa()
+  const monthKey = useMemo(() => String(fechaDia).slice(0, 7), [fechaDia])
 
   const [loading, setLoading] = useState(true)
   const [snapshotMode, setSnapshotMode] = useState(false)
@@ -211,6 +212,7 @@ export default function DashboardPage() {
   const [cargaInicialOpen, setCargaInicialOpen] = useState(false)
   const [invRows, setInvRows] = useState<{ divisa: string; cantidad_actual: number }[]>([])
   const [sumArqueoCop, setSumArqueoCop] = useState(0)
+  const [cajaTotalCop, setCajaTotalCop] = useState(0)
   const [gastosDiaCop, setGastosDiaCop] = useState(0)
   const [acumGananciasCop, setAcumGananciasCop] = useState(0)
   const [acumGastosCop, setAcumGastosCop] = useState(0)
@@ -231,6 +233,7 @@ export default function DashboardPage() {
       setCierresPrevRows([])
       setInvRows([])
       setSumArqueoCop(0)
+      setCajaTotalCop(0)
       setGastosDiaCop(0)
       setAcumGananciasCop(0)
       setAcumGastosCop(0)
@@ -262,6 +265,7 @@ export default function DashboardPage() {
         setCierresPrevRows([])
         setInvRows([])
         setSumArqueoCop(0)
+        setCajaTotalCop(Number((snap as any).caja_total_cop ?? 0))
         setGastosDiaCop(Number(snap.gastos_dia))
 
         const [acumGanRes, acumGastRes] = await Promise.all([
@@ -313,7 +317,7 @@ export default function DashboardPage() {
     let gastosQ = supabase.from('gastos').select('monto_cop').gte('fecha', desde).lt('fecha', hastaExclusive)
     let prevBalQ = supabase
       .from('balances_diarios')
-      .select('debo_tener_total')
+      .select('fecha,debo_tener_total')
       .eq('usuario_id', user.id)
       .lt('fecha', fechaDia)
       .order('fecha', { ascending: false })
@@ -363,7 +367,7 @@ export default function DashboardPage() {
     const precios = (preciosRes.error ? [] : preciosRes.data ?? []) as { moneda: string; precio_compra: number }[]
     const pMap = new Map<string, number>()
     for (const r of precios) pMap.set(String(r.moneda).toUpperCase(), Number(r.precio_compra))
-    setSumArqueoCop(
+    const cajaCop =
       cierreRes.error
         ? 0
         : (cierreRes.data ?? []).reduce((s, r) => {
@@ -373,7 +377,8 @@ export default function DashboardPage() {
             const pc = Number(pMap.get(mon) ?? 0)
             return s + cant * pc
           }, 0)
-    )
+    setCajaTotalCop(cajaCop)
+    setSumArqueoCop(cajaCop)
     setGastosDiaCop(
       gastRes.error
         ? 0
@@ -381,15 +386,18 @@ export default function DashboardPage() {
     )
 
     const prevTotal = prevBalRes.data?.debo_tener_total
+    const prevFecha = prevBalRes.data?.fecha ? String((prevBalRes.data as any).fecha).slice(0, 10) : null
+    const prevMonthKey = prevFecha ? prevFecha.slice(0, 7) : null
     setPrevDeboTenerCop(
-      prevTotal != null && Number.isFinite(Number(prevTotal)) ? Number(prevTotal) : null
+      prevMonthKey === monthKey && prevTotal != null && Number.isFinite(Number(prevTotal)) ? Number(prevTotal) : null
     )
 
     setAcumGananciasCop(
       acumGanRes.error
         ? 0
-        : sumGananciaHistoricaTotal(
-            (acumGanRes.data ?? []) as { fecha: string; ganancia_calculada: unknown }[]
+        : sumGananciaHistoricaHastaFecha(
+            (acumGanRes.data ?? []) as { fecha: string; ganancia_calculada: unknown }[],
+            fechaDia
           )
     )
     setAcumGastosCop(
@@ -548,6 +556,8 @@ export default function DashboardPage() {
    */
   const deboTenerCop = useMemo(() => {
     if (snapshotMode && balanceSnap) return Number(balanceSnap.debo_tener_total)
+    // Primera operación del mes: Debo tener = Tengo (no arrastra ganancia/gastos).
+    if (prevDeboTenerCop == null) return tengoCop
     if (prevDeboTenerCop != null && Number.isFinite(prevDeboTenerCop)) {
       return prevDeboTenerCop + totalGananciaDiaCop - gastosDiaCop
     }
@@ -639,7 +649,8 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <TarjetaBalanceCop titulo="Caja (COP)" valorCop={snapshotMode ? Number((balanceSnap as any)?.caja_total_cop ?? 0) : cajaTotalCop} loading={balanceLoading} />
         <TarjetaBalanceCop titulo="Tengo" valorCop={tengoCop} loading={balanceLoading} />
         <TarjetaBalanceCop titulo="Debo tener" valorCop={deboTenerCop} loading={balanceLoading} />
       </div>

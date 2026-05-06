@@ -240,6 +240,20 @@ export default function CajaPage() {
     }
   }
 
+  const totalCajaCop = useMemo(() => {
+    let s = 0
+    for (const f of filas) {
+      const mStr = montosManualCierre[f.codigo] ?? ''
+      const pcStr = preciosCompra[f.codigo] ?? ''
+      const m = parseFlexibleNumber(mStr)
+      const pc = parseFlexibleNumber(pcStr)
+      if (mStr.trim() === '' || pcStr.trim() === '') continue
+      if (!Number.isFinite(m) || !Number.isFinite(pc)) continue
+      s += m * pc
+    }
+    return s
+  }, [filas, montosManualCierre, preciosCompra])
+
   return (
     <div className="mx-auto max-w-4xl space-y-4 text-base text-black">
       {esHistorico ? (
@@ -337,6 +351,10 @@ export default function CajaPage() {
                 })}
               </tbody>
             </table>
+            <div className="border-t border-slate-200 bg-slate-50/90 px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Total caja (COP)</p>
+              <p className="truncate font-mono text-lg font-bold tabular-nums text-slate-900">{formatMilesEs(totalCajaCop, 2)}</p>
+            </div>
             <div className="flex justify-center border-t border-slate-200 px-3 py-4">
               <button
                 type="button"

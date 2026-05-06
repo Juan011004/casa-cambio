@@ -84,6 +84,8 @@ export async function computeBalanceDiarioUpsert(
 ): Promise<Database['public']['Tables']['balances_diarios']['Insert']> {
   const { desde, hastaExclusive } = dayBoundsLocal(fecha)
 
+  const monthKey = String(fecha).slice(0, 7) // YYYY-MM
+
   const [
     trmRes,
     prevBalRes,
@@ -98,7 +100,7 @@ export async function computeBalanceDiarioUpsert(
     supabase.from('trm_mercado').select('codigo,valor_cop'),
     supabase
       .from('balances_diarios')
-      .select('debo_tener_total')
+      .select('fecha,debo_tener_total')
       .eq('usuario_id', userId)
       .lt('fecha', fecha)
       .order('fecha', { ascending: false })
@@ -174,8 +176,13 @@ export async function computeBalanceDiarioUpsert(
   const deboCop = totalDeudasMontoCop(deboRows, copMap)
 
   const prevDebo = prevBalRes.data?.debo_tener_total
+  const prevFecha = prevBalRes.data?.fecha ? String((prevBalRes.data as any).fecha).slice(0, 10) : null
+  const prevMonthKey = prevFecha ? prevFecha.slice(0, 7) : null
   let deboTenerCop: number
-  if (prevDebo != null && Number.isFinite(Number(prevDebo))) {
+  // Regla: primera operación del mes => Debo tener = Tengo (no arrastra ganancias/gastos).
+  if (!prevFecha || prevMonthKey !== monthKey) {
+    deboTenerCop = tengoCop
+  } else if (prevDebo != null && Number.isFinite(Number(prevDebo))) {
     deboTenerCop = Number(prevDebo) + gananciasDia - gastosDiaCop
   } else {
     deboTenerCop = tengoCop + gananciasDia - gastosDiaCop
@@ -234,6 +241,7 @@ export async function computeBalanceDiarioUpsert(
     })),
     ganancia_dia_total_fmt: formatCOP(gananciasDia),
     gastos_dia_fmt: formatCOP(gastosDiaCop),
+    caja_total_cop_fmt: formatCOP(sumCajaCop),
     tengo_total_fmt: formatCOP(tengoCop),
     debo_tener_total_fmt: formatCOP(deboTenerCop),
   }
@@ -241,6 +249,7 @@ export async function computeBalanceDiarioUpsert(
   return {
     usuario_id: userId,
     fecha,
+    caja_total_cop: sumCajaCop,
     tengo_total: tengoCop,
     debo_tener_total: deboTenerCop,
     ganancias_dia: gananciasDia,

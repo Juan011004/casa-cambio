@@ -234,6 +234,7 @@ export interface Database {
           fecha: string
           tengo_total: number
           debo_tener_total: number
+          caja_total_cop?: number
           ganancias_dia: number
           gastos_dia: number
           me_deben_total: number
@@ -250,6 +251,7 @@ export interface Database {
           fecha: string
           tengo_total?: number
           debo_tener_total?: number
+          caja_total_cop?: number
           ganancias_dia?: number
           gastos_dia?: number
           me_deben_total?: number
@@ -263,6 +265,7 @@ export interface Database {
         Update: {
           tengo_total?: number
           debo_tener_total?: number
+          caja_total_cop?: number
           ganancias_dia?: number
           gastos_dia?: number
           me_deben_total?: number
