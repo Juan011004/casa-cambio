@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
-import { guardarCajaDiaria, finalizarCierreCaja } from '@/app/actions/caja'
+import { finalizarCierreCaja } from '@/app/actions/caja'
 import { dayBoundsLocal, formatMilesEs } from '@/lib/utils'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
@@ -47,9 +47,7 @@ export default function CajaPage() {
   const { fecha, esHistorico } = useFechaOperativa()
   const { rows: divisasRows } = useDivisasMaestro()
   const divisas = useMemo(() => (divisasRows.length ? divisasRows : DIVISAS_FALLBACK), [divisasRows])
-  const [aperturaMap, setAperturaMap] = useState<Record<string, number>>({})
   const [cierreMap, setCierreMap] = useState<Record<string, number>>({})
-  const [montosApertura, setMontosApertura] = useState<Record<string, string>>({})
   const [montosManualCierre, setMontosManualCierre] = useState<Record<string, string>>({})
   const [preciosCompra, setPreciosCompra] = useState<Record<string, string>>({})
   const [editPrecios, setEditPrecios] = useState(false)
@@ -60,27 +58,6 @@ export default function CajaPage() {
   const [finalizando, setFinalizando] = useState(false)
   const [cierreAyerPorMoneda, setCierreAyerPorMoneda] = useState<Record<string, number>>({})
   const [precioAyerUsdEur, setPrecioAyerUsdEur] = useState<Record<string, number>>({})
-  const saveApTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const persistAperturaDebounced = useCallback(
-    (snapshot: Record<string, string>) => {
-      if (saveApTimer.current) clearTimeout(saveApTimer.current)
-      saveApTimer.current = setTimeout(() => {
-        saveApTimer.current = null
-        void (async () => {
-          const out: Record<string, number> = {}
-          for (const d of divisas) {
-            const raw = snapshot[d.codigo] ?? ''
-            const n = parseFlexibleNumber(raw)
-            if (raw.trim() !== '' && Number.isFinite(n)) out[d.codigo] = n
-          }
-          const res = await guardarCajaDiaria({ fecha, tipo: 'APERTURA', montos: out })
-          if (!res.ok) toast.error(res.error)
-        })()
-      }, 700)
-    },
-    [fecha, divisas]
-  )
 
   const cargar = useCallback(async () => {
     setLoading(true)
@@ -88,7 +65,6 @@ export default function CajaPage() {
       data: { user },
     } = await supabase.auth.getUser()
     if (!user) {
-      setAperturaMap({})
       setCierreMap({})
       setComprasDia({})
       setVentasDia({})
@@ -110,17 +86,20 @@ export default function CajaPage() {
         .select('moneda,cierre_manual,fecha,promedio_compra,promedio_compra_acumulado')
         .eq('usuario_id', user.id)
         .lt('fecha', fecha),
-      supabase.from('caja_precios').select('moneda,precio_compra').eq('usuario_id', user.id).eq('fecha', fecha),
+      // Para monedas “estables”: traer el último precio <= fecha (copiar hacia adelante).
+      supabase
+        .from('caja_precios')
+        .select('moneda,precio_compra,fecha')
+        .eq('usuario_id', user.id)
+        .lte('fecha', fecha)
+        .order('fecha', { ascending: false }),
     ])
 
-    const ap: Record<string, number> = {}
     const ci: Record<string, number> = {}
     for (const r of cajaRes.data ?? []) {
       const row = r as { tipo: string; moneda: string; monto: number }
-      if (row.tipo === 'APERTURA') ap[row.moneda] = Number(row.monto)
       if (row.tipo === 'CIERRE') ci[row.moneda] = Number(row.monto)
     }
-    setAperturaMap(ap)
     setCierreMap(ci)
 
     const txs = (txRes.data ?? []) as Transaccion[]
@@ -156,9 +135,17 @@ export default function CajaPage() {
     setPrecioAyerUsdEur(preciosAyer)
 
     const nextPrecios: Record<string, string> = {}
-    const preciosRows = (preciosRes.error ? [] : preciosRes.data ?? []) as { moneda: string; precio_compra: number }[]
+    const preciosRows = (preciosRes.error ? [] : preciosRes.data ?? []) as {
+      moneda: string
+      precio_compra: number
+      fecha: string
+    }[]
     const pm = new Map<string, number>()
-    for (const r of preciosRows) pm.set(String(r.moneda).toUpperCase(), Number(r.precio_compra))
+    for (const r of preciosRows) {
+      const mon = String(r.moneda).toUpperCase()
+      // Como viene ordenado DESC, el primer match por moneda es el último precio vigente.
+      if (!pm.has(mon)) pm.set(mon, Number(r.precio_compra))
+    }
     for (const d of divisas) {
       const mon = d.codigo
       const saved = pm.get(mon)
@@ -176,20 +163,6 @@ export default function CajaPage() {
   }, [cargar])
 
   useEffect(() => {
-    const nextA: Record<string, string> = {}
-    for (const d of divisas) {
-      const m = aperturaMap[d.codigo]
-      if (m != null && Number.isFinite(m)) {
-        nextA[d.codigo] = m !== 0 ? formatMilesEs(m, 2) : ''
-      } else {
-        const y = cierreAyerPorMoneda[d.codigo]
-        nextA[d.codigo] = y != null && Number.isFinite(y) && y !== 0 ? formatMilesEs(y, 2) : ''
-      }
-    }
-    setMontosApertura(nextA)
-  }, [aperturaMap, cierreAyerPorMoneda, divisas])
-
-  useEffect(() => {
     const nextM: Record<string, string> = {}
     for (const d of divisas) {
       const m = cierreMap[d.codigo]
@@ -201,17 +174,14 @@ export default function CajaPage() {
   const codigos = useMemo(() => {
     const s = new Set<string>()
     for (const d of divisas) s.add(d.codigo)
-    for (const k of Object.keys(aperturaMap)) s.add(k)
     for (const k of Object.keys(comprasDia)) s.add(k)
     for (const k of Object.keys(ventasDia)) s.add(k)
     return Array.from(s).sort((a, b) => a.localeCompare(b))
-  }, [divisas, aperturaMap, comprasDia, ventasDia])
+  }, [divisas, comprasDia, ventasDia])
 
   const filas = useMemo(() => {
     return codigos.map((codigo) => {
-      const rawAp = montosApertura[codigo] ?? ''
-      const parsedAp = parseFlexibleNumber(rawAp)
-      const ap = rawAp.trim() !== '' && Number.isFinite(parsedAp) ? parsedAp : (aperturaMap[codigo] ?? 0)
+      const ap = cierreAyerPorMoneda[codigo] ?? 0
       const comp = comprasDia[codigo] ?? 0
       const vent = ventasDia[codigo] ?? 0
       const estimado = ap + comp - vent
@@ -221,7 +191,7 @@ export default function CajaPage() {
       const diff = manualOk ? manualNum - estimado : null
       return { codigo, estimado, manualStr, diff }
     })
-  }, [codigos, montosApertura, aperturaMap, comprasDia, ventasDia, montosManualCierre])
+  }, [codigos, cierreAyerPorMoneda, comprasDia, ventasDia, montosManualCierre])
 
   const onFinalizarCierre = async () => {
     setFinalizando(true)
@@ -232,14 +202,7 @@ export default function CajaPage() {
         const nM = parseFlexibleNumber(rawM)
         if (rawM.trim() !== '' && Number.isFinite(nM)) manualCierre[row.codigo] = nM
       }
-      const aperturas: Record<string, number> = {}
-      for (const codigo of Object.keys(manualCierre)) {
-        const rawA = montosApertura[codigo] ?? ''
-        const nA = parseFlexibleNumber(rawA)
-        if (rawA.trim() !== '' && Number.isFinite(nA)) aperturas[codigo] = nA
-        else aperturas[codigo] = aperturaMap[codigo] ?? 0
-      }
-      const res = await finalizarCierreCaja({ fecha, manualCierre, aperturas })
+      const res = await finalizarCierreCaja({ fecha, manualCierre })
       if (!res.ok) {
         toast.error(res.error)
         return
@@ -311,9 +274,8 @@ export default function CajaPage() {
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
                   <th className="border-r border-slate-200 px-2 py-2 text-left font-bold text-slate-800">Moneda</th>
-                  <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Apertura</th>
                   <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Precio compra</th>
-                  <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Cierre est.</th>
+                  <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Debo tener</th>
                   <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Cierre manual</th>
                   <th className="px-2 py-2 font-bold text-slate-800">Diferencia</th>
                 </tr>
@@ -338,24 +300,6 @@ export default function CajaPage() {
                             <span className="font-mono text-slate-600">({f.codigo})</span>
                           </span>
                         </span>
-                      </td>
-                      <td className="border-r border-slate-100 px-2 py-1.5 align-middle">
-                        <MoneyTextField
-                          id={`ap-${f.codigo}`}
-                          label={`Apertura ${f.codigo}`}
-                          omitLabel
-                          maxFrac={2}
-                          value={montosApertura[f.codigo] ?? ''}
-                          onChange={(v) => {
-                            setMontosApertura((prev) => {
-                              const next = { ...prev, [f.codigo]: v }
-                              persistAperturaDebounced(next)
-                              return next
-                            })
-                          }}
-                          className="flex justify-center"
-                          inputClassName={cellInput}
-                        />
                       </td>
                       <td className="border-r border-slate-100 px-2 py-1.5 align-middle">
                         <MoneyTextField

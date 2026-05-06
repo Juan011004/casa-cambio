@@ -91,7 +91,7 @@ export const historialTransaccionesLoteSchema = z
 
 export const cajaGuardarSchema = z.object({
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
-  tipo: z.enum(['APERTURA', 'CIERRE']),
+  tipo: z.enum(['CIERRE']),
   montos: z
     .record(z.string(), z.number().finite().min(0, 'Montos no negativos').max(moneyMax))
     .superRefine((val, ctx) => {
@@ -125,7 +125,6 @@ const montosRecord = z
 export const finalizarCierreSchema = z.object({
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
   manualCierre: montosRecord,
-  aperturas: montosRecord.optional(),
 })
 
 export const arqueoTengoUpsertSchema = z.object({
