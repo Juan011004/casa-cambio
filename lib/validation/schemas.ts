@@ -159,6 +159,16 @@ export const abonarDeudaSchema = z.object({
     .max(moneyMax, 'Monto demasiado grande'),
 })
 
+export const editarDeudaMontoSchema = z.object({
+  id: uuidSchema,
+  monto: z.coerce
+    .number({ invalid_type_error: 'Monto inválido' })
+    .nonnegative('El monto no puede ser negativo')
+    .max(moneyMax, 'Monto demasiado grande'),
+  /** Fecha operativa (YYYY-MM-DD). Si falta, no se recalculan snapshots. */
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida').optional(),
+})
+
 export const cargaInicialSchema = z.object({
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
   divisa: z

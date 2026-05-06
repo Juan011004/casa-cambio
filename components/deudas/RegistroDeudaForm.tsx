@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { Check, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { registrarDeuda, abonarDeuda } from '@/app/actions/deudas'
+import { registrarDeuda, editarDeudaMonto } from '@/app/actions/deudas'
 import { errorMessage } from '@/lib/errorMessage'
 import type { EstadoDeuda, RegistroDeuda } from '@/types/database'
 import { formatCOP, formatMoneyDivisa, formatMilesEs } from '@/lib/utils'
@@ -33,9 +33,9 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
   const [loading, setLoading] = useState(false)
   const [lista, setLista] = useState<RegistroDeuda[]>([])
   const [cargandoLista, setCargandoLista] = useState(true)
-  const [abonandoId, setAbonandoId] = useState<string | null>(null)
+  const [editandoId, setEditandoId] = useState<string | null>(null)
   const [modalId, setModalId] = useState<string | null>(null)
-  const [abonoStr, setAbonoStr] = useState('')
+  const [montoEditStr, setMontoEditStr] = useState('')
 
   const cargar = useCallback(async () => {
     setCargandoLista(true)
@@ -146,42 +146,38 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
     }
   }
 
-  const abrirAbono = (id: string) => {
+  const abrirEdicion = (id: string) => {
     const row = lista.find((x) => x.id === id)
     setModalId(id)
-    setAbonoStr(row ? formatMilesEs(row.monto, 4) : '')
+    setMontoEditStr(row ? formatMilesEs(row.monto, 4) : '')
   }
 
   const cerrarModal = () => {
     setModalId(null)
-    setAbonoStr('')
+    setMontoEditStr('')
   }
 
-  const confirmarAbono = async () => {
+  const confirmarEdicion = async () => {
     if (!filaModal) return
-    const n = parseFlexibleNumber(abonoStr)
-    if (!Number.isFinite(n) || n <= 0) {
-      toast.error('Indique un abono válido.')
+    const n = parseFlexibleNumber(montoEditStr)
+    if (!Number.isFinite(n) || n < 0) {
+      toast.error('Indique un monto válido.')
       return
     }
-    if (n > filaModal.monto + 1e-9) {
-      toast.error('El abono supera el saldo.')
-      return
-    }
-    setAbonandoId(filaModal.id)
+    setEditandoId(filaModal.id)
     try {
-      const res = await abonarDeuda({ id: filaModal.id, monto_abono: n })
+      const res = await editarDeudaMonto({ id: filaModal.id, monto: n, fecha: fechaOp })
       if (!res.ok) {
         toast.error(res.error)
         return
       }
-      toast.success(n >= filaModal.monto - 1e-9 ? 'Saldado' : 'Abono registrado')
+      toast.success(n <= 1e-12 ? 'Saldado' : 'Actualizado')
       cerrarModal()
       await cargar()
     } catch (err: unknown) {
       toast.error(errorMessage(err))
     } finally {
-      setAbonandoId(null)
+      setEditandoId(null)
     }
   }
 
@@ -261,7 +257,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
                   <th className="table-header text-left">Divisa</th>
                   <th className="table-header text-right">Pendiente</th>
                   <th className="table-header text-left">Fecha</th>
-                  <th className="table-header w-24">Abonar</th>
+                  <th className="table-header w-24">Editar</th>
                 </tr>
               </thead>
               <tbody>
@@ -276,12 +272,12 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
                     <td className="table-cell">
                       <button
                         type="button"
-                        title="Abonar"
-                        disabled={abonandoId === r.id}
-                        onClick={() => abrirAbono(r.id)}
+                        title="Editar monto"
+                        disabled={editandoId === r.id}
+                        onClick={() => abrirEdicion(r.id)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
                       >
-                        {abonandoId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" strokeWidth={2.5} />}
+                        {editandoId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" strokeWidth={2.5} />}
                       </button>
                     </td>
                   </tr>
@@ -323,7 +319,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
             >
               <X className="h-4 w-4" />
             </button>
-            <h3 className="pr-8 text-base font-bold text-slate-900">Abonar deuda</h3>
+            <h3 className="pr-8 text-base font-bold text-slate-900">Editar deuda</h3>
             <p className="mt-2 text-sm text-slate-600">
               Saldo pendiente:{' '}
               <span className="font-mono font-semibold text-slate-900">
@@ -332,11 +328,11 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
             </p>
             <div className="mt-3">
               <MoneyTextField
-                id="abono-monto"
-                label={`Abono (${filaModal.divisa})`}
+                id="editar-monto"
+                label={`Nuevo saldo (${filaModal.divisa})`}
                 maxFrac={4}
-                value={abonoStr}
-                onChange={setAbonoStr}
+                value={montoEditStr}
+                onChange={setMontoEditStr}
                 inputClassName="input-field input-numeric min-h-[48px] text-base"
               />
             </div>
@@ -346,11 +342,11 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
               </button>
               <button
                 type="button"
-                disabled={abonandoId !== null}
-                onClick={() => void confirmarAbono()}
+                disabled={editandoId !== null}
+                onClick={() => void confirmarEdicion()}
                 className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {abonandoId ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmar'}
+                {editandoId ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
               </button>
             </div>
           </div>

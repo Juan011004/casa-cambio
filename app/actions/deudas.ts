@@ -5,7 +5,7 @@ import { cookies } from 'next/headers'
 import { createServerActionClient } from '@supabase/auth-helpers-nextjs'
 import { z } from 'zod'
 import type { ActionResult } from '@/types/database'
-import { abonarDeudaSchema, deudaRegistroSchema, uuidSchema } from '@/lib/validation/schemas'
+import { abonarDeudaSchema, deudaRegistroSchema, editarDeudaMontoSchema, uuidSchema } from '@/lib/validation/schemas'
 import { logServerError } from '@/lib/server/server-log'
 import { recomputeBalancesDesde } from '@/app/actions/balanceDiario'
 
@@ -170,6 +170,58 @@ export async function saldarDeuda(raw: unknown): Promise<ActionResult> {
     return abonarDeuda({ id: parsed.data.id, monto_abono: m })
   } catch (e) {
     logServerError('saldarDeuda', e)
+    return { ok: false, error: 'Error inesperado.' }
+  }
+}
+
+/**
+ * Edita el saldo (monto) de una deuda directamente.
+ * - Si `monto` = 0 => marca como SALDADO
+ * - Si `monto` > 0 => PENDIENTE
+ * Mantiene consistencia con snapshots: si llega `fecha` (operativa), recalcula cadena desde esa fecha.
+ */
+export async function editarDeudaMonto(raw: unknown): Promise<ActionResult> {
+  const parsed = editarDeudaMontoSchema.safeParse(raw)
+  if (!parsed.success) {
+    const first = Object.values(parsed.error.flatten().fieldErrors).flat()[0] ?? 'Datos inválidos.'
+    return { ok: false, error: first }
+  }
+
+  try {
+    const supabase = createServerActionClient({ cookies })
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser()
+    if (userErr || !user?.id) return { ok: false, error: 'Sesión no válida.', code: 'AUTH' }
+
+    const { id, monto, fecha } = parsed.data
+    const estado = monto <= 1e-12 ? 'SALDADO' : 'PENDIENTE'
+
+    const { error } = await supabase
+      .from('deudas')
+      .update({ monto: estado === 'SALDADO' ? 0 : monto, estado })
+      .eq('id', id)
+      .eq('usuario_id', user.id)
+
+    if (error) {
+      logServerError('editarDeudaMonto/update', new Error(error.message))
+      return { ok: false, error: 'No se pudo actualizar la deuda.' }
+    }
+
+    if (fecha) {
+      const rec = await recomputeBalancesDesde({ fecha })
+      if (!rec.ok) return { ok: false, error: rec.error }
+    }
+
+    revalidatePath('/dashboard')
+    revalidatePath('/nos-deben')
+    revalidatePath('/debemos')
+    revalidatePath('/inventory')
+    revalidatePath('/caja')
+    return { ok: true }
+  } catch (e) {
+    logServerError('editarDeudaMonto', e)
     return { ok: false, error: 'Error inesperado.' }
   }
 }
