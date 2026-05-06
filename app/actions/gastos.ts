@@ -71,11 +71,29 @@ export async function eliminarGasto(raw: unknown): Promise<ActionResult> {
     } = await supabase.auth.getUser()
     if (userErr || !user) return { ok: false, error: 'Sesión no válida.', code: 'AUTH' }
 
+    const { data: prev, error: selErr } = await supabase
+      .from('gastos')
+      .select('fecha')
+      .eq('id', parsed.data.id)
+      .eq('usuario_id', user.id)
+      .maybeSingle()
+
+    if (selErr || !prev) {
+      logServerError('eliminarGasto/select', selErr ?? new Error('sin fila'))
+      return { ok: false, error: 'No se encontró el gasto.' }
+    }
+
     const { error } = await supabase.from('gastos').delete().eq('id', parsed.data.id).eq('usuario_id', user.id)
 
     if (error) {
       logServerError('eliminarGasto', new Error(error.message))
       return { ok: false, error: 'No se pudo eliminar.' }
+    }
+
+    const fechaIso = String((prev as { fecha: string }).fecha).slice(0, 10)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
+      const rec = await recomputeBalancesDesde({ fecha: fechaIso })
+      if (!rec.ok) return { ok: false, error: rec.error }
     }
 
     revalidatePath('/gastos')

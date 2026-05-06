@@ -112,8 +112,18 @@ export async function computeBalanceDiarioUpsert(
       .eq('usuario_id', userId)
       .gte('fecha', desde)
       .lt('fecha', hastaExclusive),
-    supabase.from('deudas').select('divisa,monto').eq('usuario_id', userId).eq('tipo', 'DEBEN').eq('estado', 'PENDIENTE'),
-    supabase.from('deudas').select('divisa,monto').eq('usuario_id', userId).eq('tipo', 'DEBO').eq('estado', 'PENDIENTE'),
+    supabase
+      .from('deudas')
+      .select('id,responsable,divisa,monto,fecha')
+      .eq('usuario_id', userId)
+      .eq('tipo', 'DEBEN')
+      .eq('estado', 'PENDIENTE'),
+    supabase
+      .from('deudas')
+      .select('id,responsable,divisa,monto,fecha')
+      .eq('usuario_id', userId)
+      .eq('tipo', 'DEBO')
+      .eq('estado', 'PENDIENTE'),
     supabase.from('caja_diaria').select('moneda,monto').eq('usuario_id', userId).eq('fecha', fecha).eq('tipo', 'CIERRE'),
     supabase.from('caja_precios').select('moneda,precio_compra').eq('usuario_id', userId).eq('fecha', fecha),
     supabase
@@ -206,7 +216,18 @@ export async function computeBalanceDiarioUpsert(
       }
     }) ?? []
 
+  const mapFilaDeuda = (r: Record<string, unknown>) => ({
+    id: String(r.id ?? ''),
+    responsable: String(r.responsable ?? ''),
+    divisa: String(r.divisa ?? ''),
+    monto: Number(r.monto ?? 0),
+    fecha: String(r.fecha ?? ''),
+  })
+
   const detalle_deudas: Json = {
+    /** Filas tal cual al momento del snapshot (para pantalla histórica). */
+    filas_deben: ((debenRes.data ?? []) as Record<string, unknown>[]).map(mapFilaDeuda),
+    filas_debo: ((deboRes.data ?? []) as Record<string, unknown>[]).map(mapFilaDeuda),
     deben: nosDebenLista.map((x) => ({
       codigo: x.codigo,
       valor_divisa: x.valor,

@@ -178,7 +178,7 @@ export async function saldarDeuda(raw: unknown): Promise<ActionResult> {
  * Edita el saldo (monto) de una deuda directamente.
  * - Si `monto` = 0 => marca como SALDADO
  * - Si `monto` > 0 => PENDIENTE
- * Mantiene consistencia con snapshots: si llega `fecha` (operativa), recalcula cadena desde esa fecha.
+ * Recalcula snapshots desde la fecha del registro en BD (no desde el día seleccionado en la UI).
  */
 export async function editarDeudaMonto(raw: unknown): Promise<ActionResult> {
   const parsed = editarDeudaMontoSchema.safeParse(raw)
@@ -195,8 +195,17 @@ export async function editarDeudaMonto(raw: unknown): Promise<ActionResult> {
     } = await supabase.auth.getUser()
     if (userErr || !user?.id) return { ok: false, error: 'Sesión no válida.', code: 'AUTH' }
 
-    const { id, monto, fecha } = parsed.data
+    const { id, monto } = parsed.data
     const estado = monto <= 1e-12 ? 'SALDADO' : 'PENDIENTE'
+
+    const { data: antes, error: selErr } = await supabase
+      .from('deudas')
+      .select('fecha')
+      .eq('id', id)
+      .eq('usuario_id', user.id)
+      .maybeSingle()
+
+    if (selErr || !antes) return { ok: false, error: 'No se encontró la deuda.' }
 
     const { error } = await supabase
       .from('deudas')
@@ -209,8 +218,9 @@ export async function editarDeudaMonto(raw: unknown): Promise<ActionResult> {
       return { ok: false, error: 'No se pudo actualizar la deuda.' }
     }
 
-    if (fecha) {
-      const rec = await recomputeBalancesDesde({ fecha })
+    const fechaIso = String((antes as { fecha: string }).fecha).slice(0, 10)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
+      const rec = await recomputeBalancesDesde({ fecha: fechaIso })
       if (!rec.ok) return { ok: false, error: rec.error }
     }
 
@@ -222,6 +232,53 @@ export async function editarDeudaMonto(raw: unknown): Promise<ActionResult> {
     return { ok: true }
   } catch (e) {
     logServerError('editarDeudaMonto', e)
+    return { ok: false, error: 'Error inesperado.' }
+  }
+}
+
+/** Elimina una fila de deuda y recalcula snapshots desde la fecha del registro. */
+export async function eliminarDeuda(raw: unknown): Promise<ActionResult> {
+  const parsed = z.object({ id: uuidSchema }).safeParse(raw)
+  if (!parsed.success) return { ok: false, error: 'Identificador inválido.' }
+
+  try {
+    const supabase = createServerActionClient({ cookies })
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser()
+    if (userErr || !user?.id) return { ok: false, error: 'Sesión no válida.', code: 'AUTH' }
+
+    const { data: prev, error: selErr } = await supabase
+      .from('deudas')
+      .select('fecha')
+      .eq('id', parsed.data.id)
+      .eq('usuario_id', user.id)
+      .maybeSingle()
+
+    if (selErr || !prev) return { ok: false, error: 'No se encontró la deuda.' }
+
+    const { error } = await supabase.from('deudas').delete().eq('id', parsed.data.id).eq('usuario_id', user.id)
+
+    if (error) {
+      logServerError('eliminarDeuda/delete', new Error(error.message))
+      return { ok: false, error: 'No se pudo eliminar.' }
+    }
+
+    const fechaIso = String((prev as { fecha: string }).fecha).slice(0, 10)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
+      const rec = await recomputeBalancesDesde({ fecha: fechaIso })
+      if (!rec.ok) return { ok: false, error: rec.error }
+    }
+
+    revalidatePath('/dashboard')
+    revalidatePath('/nos-deben')
+    revalidatePath('/debemos')
+    revalidatePath('/inventory')
+    revalidatePath('/caja')
+    return { ok: true }
+  } catch (e) {
+    logServerError('eliminarDeuda', e)
     return { ok: false, error: 'Error inesperado.' }
   }
 }

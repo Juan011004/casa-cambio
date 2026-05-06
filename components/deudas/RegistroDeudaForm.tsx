@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
-import { Check, Loader2, X } from 'lucide-react'
+import { Loader2, Pencil, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { registrarDeuda, editarDeudaMonto } from '@/app/actions/deudas'
+import { registrarDeuda, editarDeudaMonto, eliminarDeuda } from '@/app/actions/deudas'
 import { errorMessage } from '@/lib/errorMessage'
 import type { EstadoDeuda, RegistroDeuda } from '@/types/database'
 import { formatCOP, formatMoneyDivisa, formatMilesEs } from '@/lib/utils'
@@ -34,6 +34,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
   const [lista, setLista] = useState<RegistroDeuda[]>([])
   const [cargandoLista, setCargandoLista] = useState(true)
   const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [eliminandoId, setEliminandoId] = useState<string | null>(null)
   const [modalId, setModalId] = useState<string | null>(null)
   const [montoEditStr, setMontoEditStr] = useState('')
 
@@ -47,6 +48,34 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
       setCargandoLista(false)
       return
     }
+
+    if (esHistorico) {
+      const { data: snap } = await supabase
+        .from('balances_diarios')
+        .select('detalle_deudas')
+        .eq('usuario_id', user.id)
+        .eq('fecha', fechaOp)
+        .maybeSingle()
+
+      const det = snap?.detalle_deudas as Record<string, unknown> | null | undefined
+      const key = tipo === 'DEBEN' ? 'filas_deben' : 'filas_debo'
+      const raw = det?.[key]
+      const arr = Array.isArray(raw) ? raw : []
+
+      setLista(
+        arr.map((row: Record<string, unknown>, idx: number) => ({
+          id: String(row.id ?? `snap-${idx}`),
+          responsable: String(row.responsable ?? ''),
+          divisa: String(row.divisa ?? ''),
+          monto: Number(row.monto ?? 0),
+          fecha: String(row.fecha ?? ''),
+          estado: 'PENDIENTE' as EstadoDeuda,
+        }))
+      )
+      setCargandoLista(false)
+      return
+    }
+
     const { data } = await supabase
       .from('deudas')
       .select('id,responsable,divisa,monto,fecha,estado')
@@ -69,7 +98,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
       })
     )
     setCargandoLista(false)
-  }, [supabase, tipo])
+  }, [supabase, tipo, esHistorico, fechaOp])
 
   useEffect(() => {
     void cargar()
@@ -117,6 +146,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
 
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (esHistorico) return
     setLoading(true)
     try {
       const parsedMonto = parseFlexibleNumber(monto)
@@ -157,6 +187,24 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
     setMontoEditStr('')
   }
 
+  const confirmarEliminar = async (id: string) => {
+    if (!window.confirm('¿Eliminar esta deuda?')) return
+    setEliminandoId(id)
+    try {
+      const res = await eliminarDeuda({ id })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success('Eliminado')
+      await cargar()
+    } catch (err: unknown) {
+      toast.error(errorMessage(err))
+    } finally {
+      setEliminandoId(null)
+    }
+  }
+
   const confirmarEdicion = async () => {
     if (!filaModal) return
     const n = parseFlexibleNumber(montoEditStr)
@@ -166,7 +214,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
     }
     setEditandoId(filaModal.id)
     try {
-      const res = await editarDeudaMonto({ id: filaModal.id, monto: n, fecha: fechaOp })
+      const res = await editarDeudaMonto({ id: filaModal.id, monto: n })
       if (!res.ok) {
         toast.error(res.error)
         return
@@ -186,8 +234,9 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
       {esHistorico ? (
         <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
           <p>
-            Viendo datos históricos del <span className="font-mono font-semibold">{fechaOp}</span>. La lista muestra deudas
-            vigentes; el total en COP del backup de cierre ese día es referencial.
+            <span className="font-semibold">Solo lectura:</span> datos del cierre guardado en{' '}
+            <span className="font-mono font-semibold">{fechaOp}</span>. Los cambios del día de hoy no modifican este
+            historial.
           </p>
           {totalSnapshotCierreFmt ? (
             <p className="font-mono text-base font-semibold text-slate-900">
@@ -199,7 +248,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
         </div>
       ) : null}
 
-      <form onSubmit={guardar} noValidate className="card-pro space-y-3 p-4">
+      <form onSubmit={guardar} noValidate className={`card-pro space-y-3 p-4 ${esHistorico ? 'pointer-events-none opacity-50' : ''}`}>
         <div>
           <label className="label" htmlFor="resp">
             {etiquetaPersona}
@@ -238,7 +287,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
           onChange={setMonto}
           inputClassName="input-field input-numeric min-h-[48px] text-base"
         />
-        <button type="submit" disabled={loading} className="btn-primary min-h-[48px] w-full text-base font-semibold">
+        <button type="submit" disabled={loading || esHistorico} className="btn-primary min-h-[48px] w-full text-base font-semibold">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
         </button>
       </form>
@@ -247,7 +296,11 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
         {cargandoLista ? (
           <p className="p-4 text-base text-slate-600">Cargando…</p>
         ) : lista.length === 0 ? (
-          <p className="p-4 text-base text-slate-600">Sin registros pendientes.</p>
+          <p className="p-4 text-base text-slate-600">
+            {esHistorico
+              ? 'Sin detalle en el backup para esa fecha. Genere o actualice el snapshot del día (p. ej. desde Caja → Actualizar).'
+              : 'Sin registros pendientes.'}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-base">
@@ -257,7 +310,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
                   <th className="table-header text-left">Divisa</th>
                   <th className="table-header text-right">Pendiente</th>
                   <th className="table-header text-left">Fecha</th>
-                  <th className="table-header w-24">Editar</th>
+                  {!esHistorico ? <th className="table-header w-28 text-center">Acciones</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -269,17 +322,38 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
                     <td className="table-cell text-slate-600">
                       {new Date(r.fecha).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}
                     </td>
-                    <td className="table-cell">
-                      <button
-                        type="button"
-                        title="Editar monto"
-                        disabled={editandoId === r.id}
-                        onClick={() => abrirEdicion(r.id)}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        {editandoId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" strokeWidth={2.5} />}
-                      </button>
-                    </td>
+                    {!esHistorico ? (
+                      <td className="table-cell">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            title="Editar monto"
+                            disabled={editandoId === r.id || eliminandoId === r.id}
+                            onClick={() => abrirEdicion(r.id)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            {editandoId === r.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Pencil className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            title="Eliminar"
+                            disabled={eliminandoId === r.id || editandoId === r.id}
+                            onClick={() => void confirmarEliminar(r.id)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-700 bg-white text-red-800 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            {eliminandoId === r.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" aria-hidden />
+                            )}
+                          </button>
+                        </div>
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
