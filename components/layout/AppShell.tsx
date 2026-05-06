@@ -12,7 +12,6 @@ import {
   Wallet,
   Landmark,
   History,
-  PiggyBank,
   type LucideIcon,
 } from 'lucide-react'
 import { Sidebar } from '@/components/layout/Sidebar'
@@ -28,7 +27,6 @@ const MOBILE: { label: string; href: string; icon: LucideIcon }[] = [
   { label: 'COMP.', href: '/comprar', icon: ArrowDownLeft },
   { label: 'VEND.', href: '/vender', icon: ArrowUpRight },
   { label: 'CAJA', href: '/caja', icon: Landmark },
-  { label: 'TGO', href: '/tengo', icon: PiggyBank },
   { label: 'GASTOS', href: '/gastos', icon: Wallet },
   { label: 'DEBEN', href: '/nos-deben', icon: HandCoins },
   { label: 'DEBO', href: '/debemos', icon: Scale },

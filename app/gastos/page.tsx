@@ -20,7 +20,7 @@ type GastoRow = {
 
 export default function GastosPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), [])
-  const { fecha: fechaOperativa, esHistorico } = useFechaOperativa()
+  const { fecha: fechaOperativa } = useFechaOperativa()
   const [concepto, setConcepto] = useState('')
   const [monto, setMonto] = useState('')
   const [loading, setLoading] = useState(false)
@@ -83,7 +83,7 @@ export default function GastosPage() {
     }
     setLoading(true)
     try {
-      const res = await registrarGasto({ concepto: concepto.trim(), monto_cop: m })
+      const res = await registrarGasto({ concepto: concepto.trim(), monto_cop: m, fecha: fechaOperativa })
       if (!res.ok) {
         toast.error(res.error)
         return
@@ -118,13 +118,6 @@ export default function GastosPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 text-base text-black">
-      {esHistorico ? (
-        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          Gastos registrados el <span className="font-mono font-semibold">{fechaOperativa}</span>. Para añadir gastos nuevos,
-          seleccione la fecha de hoy en la barra superior.
-        </p>
-      ) : null}
-
       <form
         onSubmit={guardar}
         noValidate
@@ -140,7 +133,6 @@ export default function GastosPage() {
             value={concepto}
             onChange={(e) => setConcepto(e.target.value)}
             autoComplete="off"
-            disabled={esHistorico}
           />
         </div>
         <MoneyTextField
@@ -148,13 +140,12 @@ export default function GastosPage() {
           label="Monto COP"
           maxFrac={2}
           className="w-full sm:w-40"
-          disabled={esHistorico}
           value={monto}
           onChange={setMonto}
         />
         <button
           type="submit"
-          disabled={loading || esHistorico}
+          disabled={loading}
           className="btn-primary min-h-[48px] w-full shrink-0 px-6 text-base font-semibold sm:w-auto"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
@@ -189,7 +180,7 @@ export default function GastosPage() {
                       <button
                         type="button"
                         title="Eliminar"
-                        disabled={deletingId === r.id || esHistorico}
+                        disabled={deletingId === r.id}
                         onClick={() => void borrar(r.id)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-700 bg-white text-red-800 hover:bg-red-50 disabled:opacity-50"
                       >

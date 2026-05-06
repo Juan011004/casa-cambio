@@ -15,6 +15,7 @@ import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { errorMessage } from '@/lib/errorMessage'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
 import type { MetodoPago } from '@/types/database'
+import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 
 const sellSchema = z.object({
   divisa: z.string().min(2),
@@ -42,6 +43,7 @@ const METODOS: MetodoPago[] = ['Efectivo', 'Nequi', 'Cheque']
 export default function SellForm() {
   const { rows } = useDivisasMaestro()
   const [loading, setLoading] = useState(false)
+  const { fecha } = useFechaOperativa()
 
   const opciones = useMemo(() => (rows.length ? rows : DIVISAS_FALLBACK), [rows])
 
@@ -80,6 +82,7 @@ export default function SellForm() {
         cantidad: parseFlexibleNumber(data.cantidad),
         tasa: parseFlexibleNumber(data.precio),
         metodo_pago: data.metodo_pago,
+        fecha,
       })
       if (!res.ok) {
         toast.error('No se registró la venta', { description: res.error })

@@ -7,6 +7,7 @@ import { gananciaDiaPonderadaCop } from '@/lib/cierreAuditoria'
 import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '@/lib/ultimoCierre'
 import { montoDivisaEnCop, saldoDeudasNetoCop, totalDeudasMontoCop } from '@/lib/balanceCop'
 import { formatCOP, formatMilesEs } from '@/lib/formatMoney'
+import { q6 } from '@/lib/precision'
 
 function rowsToCopMap(rows: { codigo: string; valor_cop: number }[]): CopPorUnidad {
   const out: CopPorUnidad = {
@@ -89,7 +90,8 @@ export async function computeBalanceDiarioUpsert(
     txRes,
     debenRes,
     deboRes,
-    arqRes,
+    cajaCierreRes,
+    cajaPrecioRes,
     gastRes,
     cPrevRes,
   ] = await Promise.all([
@@ -110,7 +112,8 @@ export async function computeBalanceDiarioUpsert(
       .lt('fecha', hastaExclusive),
     supabase.from('deudas').select('divisa,monto').eq('usuario_id', userId).eq('tipo', 'DEBEN').eq('estado', 'PENDIENTE'),
     supabase.from('deudas').select('divisa,monto').eq('usuario_id', userId).eq('tipo', 'DEBO').eq('estado', 'PENDIENTE'),
-    supabase.from('arqueo_tengo').select('moneda_codigo,moneda_nombre,cantidad,precio_compra').eq('usuario_id', userId),
+    supabase.from('caja_diaria').select('moneda,monto').eq('usuario_id', userId).eq('fecha', fecha).eq('tipo', 'CIERRE'),
+    supabase.from('caja_precios').select('moneda,precio_compra').eq('usuario_id', userId).eq('fecha', fecha),
     supabase
       .from('gastos')
       .select('monto_cop')
@@ -135,13 +138,18 @@ export async function computeBalanceDiarioUpsert(
     monto: Number((r as Record<string, unknown>).monto),
   }))
 
-  const sumArqueoCop =
-    arqRes.error || !arqRes.data
-      ? 0
-      : arqRes.data.reduce((s, r) => {
-          const row = r as { cantidad: number; precio_compra: number }
-          return s + Number(row.cantidad) * Number(row.precio_compra)
-        }, 0)
+  const cierreRows = (cajaCierreRes.error ? [] : cajaCierreRes.data ?? []) as { moneda: string; monto: number }[]
+  const precioRows = (cajaPrecioRes.error ? [] : cajaPrecioRes.data ?? []) as { moneda: string; precio_compra: number }[]
+  const precioMap = new Map<string, number>()
+  for (const r of precioRows) precioMap.set(String(r.moneda).toUpperCase(), Number(r.precio_compra))
+
+  const sumCajaCop = cierreRows.reduce((s, r) => {
+    const mon = String(r.moneda).toUpperCase()
+    const cant = Number(r.monto)
+    const pc = Number(precioMap.get(mon) ?? 0)
+    if (!Number.isFinite(cant) || !Number.isFinite(pc)) return s
+    return q6(s + q6(cant * pc))
+  }, 0)
 
   const gastosDiaCop =
     gastRes.error || !gastRes.data
@@ -161,7 +169,7 @@ export async function computeBalanceDiarioUpsert(
   const nosDebenLista = sumDeudasPendientes(debenRows)
   const debemosLista = sumDeudasPendientes(deboRows)
 
-  const tengoCop = sumArqueoCop + saldoDeudasNetoCop(debenRows, deboRows, copMap)
+  const tengoCop = q6(sumCajaCop + saldoDeudasNetoCop(debenRows, deboRows, copMap))
   const meDebenCop = totalDeudasMontoCop(debenRows, copMap)
   const deboCop = totalDeudasMontoCop(deboRows, copMap)
 
@@ -174,23 +182,20 @@ export async function computeBalanceDiarioUpsert(
   }
 
   const detalle_arqueo: Json =
-    (arqRes.data ?? []).map((r) => {
-      const row = r as {
-        moneda_codigo: string
-        moneda_nombre: string
-        cantidad: number
-        precio_compra: number
-      }
-      const valorCop = Number(row.cantidad) * Number(row.precio_compra)
+    cierreRows.map((r) => {
+      const mon = String(r.moneda).toUpperCase()
+      const cant = Number(r.monto)
+      const pc = Number(precioMap.get(mon) ?? 0)
+      const valorCop = q6(cant * pc)
       return {
-        moneda_codigo: row.moneda_codigo,
-        moneda_nombre: row.moneda_nombre,
-        cantidad: row.cantidad,
-        precio_compra: row.precio_compra,
+        moneda_codigo: mon,
+        moneda_nombre: mon,
+        cantidad: cant,
+        precio_compra: pc,
         valor_cop: valorCop,
         valor_cop_fmt: formatCOP(valorCop),
-        cantidad_fmt: formatMilesEs(Number(row.cantidad), 4),
-        precio_compra_fmt: formatMilesEs(Number(row.precio_compra), 2),
+        cantidad_fmt: formatMilesEs(cant, 4),
+        precio_compra_fmt: formatMilesEs(pc, 4),
       }
     }) ?? []
 

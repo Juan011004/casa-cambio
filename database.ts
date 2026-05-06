@@ -227,36 +227,6 @@ export interface Database {
         }
         Relationships: []
       }
-      arqueo_tengo: {
-        Row: {
-          id: string
-          usuario_id: string
-          moneda_codigo: string
-          moneda_nombre: string
-          cantidad: number
-          precio_compra: number
-          fecha: string
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          usuario_id: string
-          moneda_codigo: string
-          moneda_nombre: string
-          cantidad?: number
-          precio_compra?: number
-          fecha?: string
-          created_at?: string
-        }
-        Update: {
-          moneda_codigo?: string
-          moneda_nombre?: string
-          cantidad?: number
-          precio_compra?: number
-          fecha?: string
-        }
-        Relationships: []
-      }
       balances_diarios: {
         Row: {
           id: string
@@ -272,6 +242,7 @@ export interface Database {
           detalle_deudas: Json | null
           detalle_tarjetas: Json | null
           created_at: string
+          ultima_modificacion?: string
         }
         Insert: {
           id?: string
@@ -287,6 +258,7 @@ export interface Database {
           detalle_deudas?: Json | null
           detalle_tarjetas?: Json | null
           created_at?: string
+          ultima_modificacion?: string
         }
         Update: {
           tengo_total?: number
@@ -298,6 +270,32 @@ export interface Database {
           detalle_arqueo?: Json | null
           detalle_deudas?: Json | null
           detalle_tarjetas?: Json | null
+          ultima_modificacion?: string
+        }
+        Relationships: []
+      }
+      caja_precios: {
+        Row: {
+          id: string
+          usuario_id: string
+          fecha: string
+          moneda: string
+          precio_compra: number
+          created_at: string
+          ultima_modificacion: string
+        }
+        Insert: {
+          id?: string
+          usuario_id: string
+          fecha: string
+          moneda: string
+          precio_compra?: number
+          created_at?: string
+          ultima_modificacion?: string
+        }
+        Update: {
+          precio_compra?: number
+          ultima_modificacion?: string
         }
         Relationships: []
       }

@@ -14,7 +14,6 @@ import {
   Wallet,
   Landmark,
   History,
-  PiggyBank,
 } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { cn } from '@/lib/utils'
@@ -30,7 +29,6 @@ const NAV_ITEMS: NavEntry[] = [
   { label: 'COMPRAR', href: '/comprar', icon: ArrowDownLeft },
   { label: 'VENDER', href: '/vender', icon: ArrowUpRight },
   { label: 'CAJA', href: '/caja', icon: Landmark },
-  { label: 'TENGO', href: '/tengo', icon: PiggyBank },
   { label: 'GASTOS', href: '/gastos', icon: Wallet },
   { label: 'NOS DEBEN', href: '/nos-deben', icon: HandCoins },
   { label: 'DEBEMOS', href: '/debemos', icon: Scale },

@@ -14,6 +14,7 @@ import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { errorMessage } from '@/lib/errorMessage'
 import type { Transaccion } from '@/types/database'
 import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '@/lib/ultimoCierre'
+import { upsertCajaPrecios } from '@/app/actions/cajaPrecios'
 
 const FLAGS: Record<string, string> = {
   USD: '🇺🇸',
@@ -50,11 +51,15 @@ export default function CajaPage() {
   const [cierreMap, setCierreMap] = useState<Record<string, number>>({})
   const [montosApertura, setMontosApertura] = useState<Record<string, string>>({})
   const [montosManualCierre, setMontosManualCierre] = useState<Record<string, string>>({})
+  const [preciosCompra, setPreciosCompra] = useState<Record<string, string>>({})
+  const [editPrecios, setEditPrecios] = useState(false)
+  const [guardandoPrecios, setGuardandoPrecios] = useState(false)
   const [comprasDia, setComprasDia] = useState<Record<string, number>>({})
   const [ventasDia, setVentasDia] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [finalizando, setFinalizando] = useState(false)
   const [cierreAyerPorMoneda, setCierreAyerPorMoneda] = useState<Record<string, number>>({})
+  const [precioAyerUsdEur, setPrecioAyerUsdEur] = useState<Record<string, number>>({})
   const saveApTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const persistAperturaDebounced = useCallback(
@@ -92,7 +97,7 @@ export default function CajaPage() {
     }
 
     const { desde, hastaExclusive } = dayBoundsLocal(fecha)
-    const [cajaRes, txRes, cierresPrevRes] = await Promise.all([
+    const [cajaRes, txRes, cierresPrevRes, preciosRes] = await Promise.all([
       supabase.from('caja_diaria').select('tipo,moneda,monto').eq('usuario_id', user.id).eq('fecha', fecha),
       supabase
         .from('transacciones')
@@ -105,6 +110,7 @@ export default function CajaPage() {
         .select('moneda,cierre_manual,fecha,promedio_compra,promedio_compra_acumulado')
         .eq('usuario_id', user.id)
         .lt('fecha', fecha),
+      supabase.from('caja_precios').select('moneda,precio_compra').eq('usuario_id', user.id).eq('fecha', fecha),
     ])
 
     const ap: Record<string, number> = {}
@@ -122,11 +128,45 @@ export default function CajaPage() {
     setVentasDia(sumTxByMoneda(txs, 'VENTA'))
 
     const ayer: Record<string, number> = {}
+    const preciosAyer: Record<string, number> = {}
     if (!cierresPrevRes.error) {
       const fold = saldoPromedioPorMonedaDesdeCierres((cierresPrevRes.data ?? []) as CierreRowParaArrastre[])
       for (const [mon, v] of Array.from(fold.entries())) ayer[mon] = v.saldoAnterior
+
+      const rows = (cierresPrevRes.data ?? []) as unknown as {
+        moneda: string
+        fecha: string
+        promedio_compra: number
+        promedio_compra_acumulado: number
+      }[]
+      const pick = (code: string) => {
+        const only = rows
+          .filter((r) => String(r.moneda).toUpperCase() === code)
+          .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0]
+        if (!only) return 0
+        const pac = Number((only as any).promedio_compra_acumulado ?? 0)
+        const pc = Number((only as any).promedio_compra ?? 0)
+        const v = pac > 0 ? pac : pc
+        return Number.isFinite(v) ? v : 0
+      }
+      preciosAyer.USD = pick('USD')
+      preciosAyer.EUR = pick('EUR')
     }
     setCierreAyerPorMoneda(ayer)
+    setPrecioAyerUsdEur(preciosAyer)
+
+    const nextPrecios: Record<string, string> = {}
+    const preciosRows = (preciosRes.error ? [] : preciosRes.data ?? []) as { moneda: string; precio_compra: number }[]
+    const pm = new Map<string, number>()
+    for (const r of preciosRows) pm.set(String(r.moneda).toUpperCase(), Number(r.precio_compra))
+    for (const d of divisas) {
+      const mon = d.codigo
+      const saved = pm.get(mon)
+      const fallback = mon === 'USD' ? preciosAyer.USD : mon === 'EUR' ? preciosAyer.EUR : 0
+      const v = saved != null && Number.isFinite(saved) && saved > 0 ? saved : fallback
+      nextPrecios[mon] = v > 0 ? formatMilesEs(v, 4) : ''
+    }
+    setPreciosCompra(nextPrecios)
 
     setLoading(false)
   }, [supabase, fecha])
@@ -213,12 +253,37 @@ export default function CajaPage() {
     }
   }
 
+  const onGuardarPrecios = async () => {
+    setGuardandoPrecios(true)
+    try {
+      const out: Record<string, number> = {}
+      for (const d of divisas) {
+        const raw = preciosCompra[d.codigo] ?? ''
+        const n = parseFlexibleNumber(raw)
+        if (raw.trim() !== '' && Number.isFinite(n) && n >= 0) out[d.codigo] = n
+      }
+      const res = await upsertCajaPrecios({ fecha, precios: out })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success('Precios guardados')
+      setEditPrecios(false)
+      await cargar()
+    } catch (e: unknown) {
+      toast.error(errorMessage(e))
+    } finally {
+      setGuardandoPrecios(false)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-4xl space-y-4 text-base text-black">
       {esHistorico ? (
         <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          Visualización de la caja del <span className="font-mono font-semibold">{fecha}</span>. Para cerrar el día y generar el backup,
-          cambie la fecha operativa a hoy en la barra superior.
+          Edición retroactiva activada: estás ajustando la caja del{' '}
+          <span className="font-mono font-semibold">{fecha}</span>. Al presionar{' '}
+          <span className="font-semibold">Actualizar</span> se recalcula y guarda el snapshot de ese día.
         </p>
       ) : null}
 
@@ -227,11 +292,27 @@ export default function CajaPage() {
           <p className="p-6 text-center text-base text-slate-500">…</p>
         ) : (
           <>
+            <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-200 px-3 py-2">
+              <button type="button" onClick={() => setEditPrecios((v) => !v)} className="btn-secondary min-h-[44px] text-sm">
+                {editPrecios ? 'Bloquear precios' : 'Editar precios'}
+              </button>
+              {editPrecios ? (
+                <button
+                  type="button"
+                  disabled={guardandoPrecios}
+                  onClick={() => void onGuardarPrecios()}
+                  className="btn-primary min-h-[44px] text-sm"
+                >
+                  {guardandoPrecios ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar precios'}
+                </button>
+              ) : null}
+            </div>
             <table className="w-full border-collapse text-center text-base">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
                   <th className="border-r border-slate-200 px-2 py-2 text-left font-bold text-slate-800">Moneda</th>
                   <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Apertura</th>
+                  <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Precio compra</th>
                   <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Cierre est.</th>
                   <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Cierre manual</th>
                   <th className="px-2 py-2 font-bold text-slate-800">Diferencia</th>
@@ -264,7 +345,6 @@ export default function CajaPage() {
                           label={`Apertura ${f.codigo}`}
                           omitLabel
                           maxFrac={2}
-                          disabled={esHistorico}
                           value={montosApertura[f.codigo] ?? ''}
                           onChange={(v) => {
                             setMontosApertura((prev) => {
@@ -273,6 +353,19 @@ export default function CajaPage() {
                               return next
                             })
                           }}
+                          className="flex justify-center"
+                          inputClassName={cellInput}
+                        />
+                      </td>
+                      <td className="border-r border-slate-100 px-2 py-1.5 align-middle">
+                        <MoneyTextField
+                          id={`pc-${f.codigo}`}
+                          label={`Precio compra ${f.codigo}`}
+                          omitLabel
+                          maxFrac={4}
+                          disabled={!editPrecios}
+                          value={preciosCompra[f.codigo] ?? ''}
+                          onChange={(v) => setPreciosCompra((prev) => ({ ...prev, [f.codigo]: v }))}
                           className="flex justify-center"
                           inputClassName={cellInput}
                         />
@@ -286,7 +379,6 @@ export default function CajaPage() {
                           label={`Cierre manual ${f.codigo}`}
                           omitLabel
                           maxFrac={2}
-                          disabled={esHistorico}
                           value={f.manualStr}
                           onChange={(v) => setMontosManualCierre((prev) => ({ ...prev, [f.codigo]: v }))}
                           className="flex justify-center"
@@ -304,7 +396,7 @@ export default function CajaPage() {
             <div className="flex justify-center border-t border-slate-200 px-3 py-4">
               <button
                 type="button"
-                disabled={finalizando || esHistorico}
+                disabled={finalizando}
                 onClick={() => void onFinalizarCierre()}
                 className="min-h-[52px] min-w-[220px] rounded-xl bg-gradient-to-b from-slate-800 to-slate-950 px-8 text-base font-bold text-white shadow-lg hover:from-slate-700 hover:to-slate-900 disabled:opacity-50"
               >

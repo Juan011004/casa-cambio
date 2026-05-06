@@ -7,6 +7,7 @@ import { z } from 'zod'
 import type { ActionResult } from '@/types/database'
 import { abonarDeudaSchema, deudaRegistroSchema, uuidSchema } from '@/lib/validation/schemas'
 import { logServerError } from '@/lib/server/server-log'
+import { recomputeBalancesDesde } from '@/app/actions/balanceDiario'
 
 const saldarSchema = z.object({ id: uuidSchema })
 
@@ -34,6 +35,7 @@ export async function registrarDeuda(raw: unknown): Promise<ActionResult<{ id: s
         divisa: parsed.data.divisa,
         monto: parsed.data.monto,
         estado: 'PENDIENTE',
+        ...(parsed.data.fecha ? { fecha: parsed.data.fecha } : null),
       })
       .select('id')
       .single()
@@ -44,6 +46,11 @@ export async function registrarDeuda(raw: unknown): Promise<ActionResult<{ id: s
     }
     const row = data as { id: string } | null
     if (!row?.id) return { ok: false, error: 'No se guardó el registro.' }
+
+    if (parsed.data.fecha) {
+      const rec = await recomputeBalancesDesde({ fecha: parsed.data.fecha })
+      if (!rec.ok) return { ok: false, error: rec.error }
+    }
 
     revalidatePath('/dashboard')
     revalidatePath('/nos-deben')

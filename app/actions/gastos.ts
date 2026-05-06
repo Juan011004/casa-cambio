@@ -7,6 +7,7 @@ import { z } from 'zod'
 import type { ActionResult } from '@/types/database'
 import { gastoInsertSchema, uuidSchema } from '@/lib/validation/schemas'
 import { logServerError } from '@/lib/server/server-log'
+import { recomputeBalancesDesde } from '@/app/actions/balanceDiario'
 
 const eliminarGastoSchema = z.object({ id: uuidSchema })
 
@@ -31,6 +32,7 @@ export async function registrarGasto(raw: unknown): Promise<ActionResult<{ id: s
         usuario_id: user.id,
         concepto: parsed.data.concepto,
         monto_cop: parsed.data.monto_cop,
+        ...(parsed.data.fecha ? { fecha: parsed.data.fecha } : null),
       })
       .select('id')
       .single()
@@ -41,6 +43,11 @@ export async function registrarGasto(raw: unknown): Promise<ActionResult<{ id: s
     }
     const row = data as { id: string } | null
     if (!row?.id) return { ok: false, error: 'No se guardó.' }
+
+    if (parsed.data.fecha) {
+      const rec = await recomputeBalancesDesde({ fecha: parsed.data.fecha })
+      if (!rec.ok) return { ok: false, error: rec.error }
+    }
 
     revalidatePath('/gastos')
     revalidatePath('/dashboard')

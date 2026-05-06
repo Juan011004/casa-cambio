@@ -4,6 +4,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { useEffect, useState } from 'react'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 import { fechaLocalYYYYMMDD } from '@/lib/utils'
+import { ensureSnapshotAyer } from '@/app/actions/balanceDiario'
 
 export function Header() {
   const [userLabel, setUserLabel] = useState('')
@@ -16,6 +17,11 @@ export function Header() {
     supabase.auth.getUser().then(({ data }) => {
       setUserLabel(data.user?.email?.split('@')[0] ?? '')
     })
+  }, [])
+
+  // Auto-cierre (fallback): asegura snapshot de ayer al abrir la app.
+  useEffect(() => {
+    void ensureSnapshotAyer()
   }, [])
 
   return (

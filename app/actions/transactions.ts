@@ -7,6 +7,7 @@ import { totalCopFromTasa } from '@/lib/pricing'
 import type { ActionResult, MetodoPago } from '@/types/database'
 import { transaccionCompraVentaSchema } from '@/lib/validation/schemas'
 import { logServerError } from '@/lib/server/server-log'
+import { recomputeBalancesDesde } from '@/app/actions/balanceDiario'
 
 async function serverClient() {
   return createServerActionClient({ cookies })
@@ -23,7 +24,7 @@ export async function registrarCompra(
   }
 
   try {
-    const { divisa, cantidad, tasa, metodo_pago } = parsed.data
+    const { divisa, cantidad, tasa, metodo_pago, fecha } = parsed.data
     const supabase = await serverClient()
 
     const {
@@ -44,11 +45,17 @@ export async function registrarCompra(
       total_cop,
       usuario_id: user.id,
       metodo_pago: metodo_pago as MetodoPago,
+      ...(fecha ? { fecha } : null),
     })
 
     if (error) {
       logServerError('registrarCompra', new Error(error.message))
       return { ok: false, error: 'No se pudo registrar la compra.' }
+    }
+
+    if (fecha) {
+      const rec = await recomputeBalancesDesde({ fecha })
+      if (!rec.ok) return { ok: false, error: rec.error }
     }
 
     revalidatePath('/dashboard')
@@ -75,7 +82,7 @@ export async function registrarVenta(
   }
 
   try {
-    const { divisa, cantidad, tasa, metodo_pago } = parsed.data
+    const { divisa, cantidad, tasa, metodo_pago, fecha } = parsed.data
     const supabase = await serverClient()
 
     const {
@@ -96,11 +103,17 @@ export async function registrarVenta(
       total_cop,
       usuario_id: user.id,
       metodo_pago: metodo_pago as MetodoPago,
+      ...(fecha ? { fecha } : null),
     })
 
     if (error) {
       logServerError('registrarVenta', new Error(error.message))
       return { ok: false, error: 'No se pudo registrar la venta.' }
+    }
+
+    if (fecha) {
+      const rec = await recomputeBalancesDesde({ fecha })
+      if (!rec.ok) return { ok: false, error: rec.error }
     }
 
     revalidatePath('/dashboard')

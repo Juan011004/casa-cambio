@@ -1,4 +1,5 @@
 import type { Transaccion } from '@/types/database'
+import { q6 } from '@/lib/precision'
 
 /** Suma compras / ventas del día por moneda y promedios ponderados (COP por unidad de divisa). */
 export function agregarCompraVentaPorMoneda(txs: Transaccion[], moneda: string) {
@@ -12,15 +13,15 @@ export function agregarCompraVentaPorMoneda(txs: Transaccion[], moneda: string) 
     const tas = Number(t.tasa_aplicada)
     if (!Number.isFinite(m) || !Number.isFinite(tas)) continue
     if (t.tipo === 'COMPRA') {
-      totalCompraMonto += m
-      costoCompraCop += m * tas
+      totalCompraMonto = q6(totalCompraMonto + m)
+      costoCompraCop = q6(costoCompraCop + q6(m * tas))
     } else if (t.tipo === 'VENTA') {
-      totalVentaMonto += m
-      ingresoVentaCop += m * tas
+      totalVentaMonto = q6(totalVentaMonto + m)
+      ingresoVentaCop = q6(ingresoVentaCop + q6(m * tas))
     }
   }
-  const promedioCompraDia = totalCompraMonto > 1e-12 ? costoCompraCop / totalCompraMonto : 0
-  const promedioVentaDia = totalVentaMonto > 1e-12 ? ingresoVentaCop / totalVentaMonto : 0
+  const promedioCompraDia = totalCompraMonto > 1e-12 ? q6(costoCompraCop / totalCompraMonto) : 0
+  const promedioVentaDia = totalVentaMonto > 1e-12 ? q6(ingresoVentaCop / totalVentaMonto) : 0
   return {
     totalCompraMonto,
     costoCompraCop,
@@ -47,7 +48,7 @@ export function promedioCompraConArrastre(
     if (a.totalCompraMonto > 1e-12) return a.promedioCompraDia
     return promedioAnterior
   }
-  return (saldoAnterior * promedioAnterior + a.costoCompraCop) / denom
+  return q6((q6(saldoAnterior * promedioAnterior) + a.costoCompraCop) / denom)
 }
 
 /** (Promedio venta del día − promedio compra calculado) × total vendido hoy. */
@@ -58,7 +59,7 @@ export function gananciaDiaConPromedioCompra(
 ): number {
   const a = agregarCompraVentaPorMoneda(txs, moneda)
   if (a.totalVentaMonto <= 1e-12) return 0
-  return a.totalVentaMonto * (a.promedioVentaDia - promedioCompraCalculado)
+  return q6(a.totalVentaMonto * q6(a.promedioVentaDia - promedioCompraCalculado))
 }
 
 /**

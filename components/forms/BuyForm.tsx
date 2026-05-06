@@ -10,6 +10,7 @@ import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { totalCopFromTasa } from '@/lib/pricing'
 import { registrarCompra } from '@/app/actions/transactions'
 import { formatCOP } from '@/lib/utils'
+import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { errorMessage } from '@/lib/errorMessage'
@@ -42,6 +43,7 @@ const METODOS: MetodoPago[] = ['Efectivo', 'Nequi', 'Cheque']
 export default function BuyForm() {
   const { rows } = useDivisasMaestro()
   const [loading, setLoading] = useState(false)
+  const { fecha } = useFechaOperativa()
 
   const opciones = useMemo(() => (rows.length ? rows : DIVISAS_FALLBACK), [rows])
 
@@ -80,6 +82,7 @@ export default function BuyForm() {
         cantidad: parseFlexibleNumber(data.cantidad),
         tasa: parseFlexibleNumber(data.precio),
         metodo_pago: data.metodo_pago,
+        fecha,
       })
       if (!res.ok) {
         toast.error('No se registró la compra', { description: res.error })

@@ -1,11 +1,12 @@
 import type { InventarioItem } from '@/types/database'
+import { q6 } from '@/lib/precision'
 
 /** COP total: cantidad de divisa × tasa COP por 1 unidad (precio compra o venta configurado). */
 export function totalCopFromTasa(cantidad: number, tasaCopPorUnidad: number): number {
   const c = Number(cantidad)
   const t = Number(tasaCopPorUnidad)
   if (!Number.isFinite(c) || !Number.isFinite(t) || c <= 0 || t <= 0) return 0
-  return c * t
+  return q6(c * t)
 }
 
 /** Existencias consolidadas por divisa (cantidad_actual). */

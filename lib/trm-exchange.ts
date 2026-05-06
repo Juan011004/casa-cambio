@@ -35,7 +35,8 @@ export async function fetchTrmRowsFromExchangeApi(): Promise<TrmMercadoUpsert[]>
   const mk = (codigo: string, valor: number): TrmMercadoUpsert => ({
     codigo,
     nombre: NOMBRES[codigo] ?? codigo,
-    valor_cop: Math.round(valor * 100) / 100,
+    // Alta precisión: no redondear a 2 decimales para no perder milésimas.
+    valor_cop: Number.isFinite(valor) ? Math.trunc(valor * 1_000_000) / 1_000_000 : 0,
   })
 
   const map = new Map<string, TrmMercadoUpsert>()

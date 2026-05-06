@@ -21,6 +21,8 @@ export const transaccionCompraVentaSchema = z.object({
     .positive('La tasa debe ser mayor a 0')
     .max(moneyMax, 'Tasa demasiado grande'),
   metodo_pago: metodoPagoSchema,
+  /** Fecha operativa (YYYY-MM-DD). Si falta, se usa NOW() en la BD. */
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida').optional(),
 })
 
 export const gastoInsertSchema = z.object({
@@ -34,6 +36,8 @@ export const gastoInsertSchema = z.object({
     .number({ invalid_type_error: 'Monto inválido' })
     .positive('El monto debe ser mayor a 0')
     .max(moneyMax, 'Monto demasiado grande'),
+  /** Fecha operativa (YYYY-MM-DD). Si falta, se usa NOW() en la BD. */
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida').optional(),
 })
 
 export const deudaRegistroSchema = z.object({
@@ -54,6 +58,8 @@ export const deudaRegistroSchema = z.object({
     .number({ invalid_type_error: 'Monto inválido' })
     .positive('El monto debe ser mayor a 0')
     .max(moneyMax, 'Monto demasiado grande'),
+  /** Fecha operativa (YYYY-MM-DD). Si falta, se usa NOW() en la BD. */
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida').optional(),
 })
 
 export const uuidSchema = z.string().uuid('Identificador inválido.')

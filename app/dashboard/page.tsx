@@ -308,7 +308,8 @@ export default function DashboardPage() {
       .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
       .lt('fecha', fechaDia)
     let invQ = supabase.from('inventario').select('divisa,cantidad_actual')
-    let arqQ = supabase.from('arqueo_tengo').select('cantidad,precio_compra')
+    let cajaCierreQ = supabase.from('caja_diaria').select('moneda,monto').eq('tipo', 'CIERRE').eq('fecha', fechaDia)
+    let cajaPreciosQ = supabase.from('caja_precios').select('moneda,precio_compra').eq('fecha', fechaDia)
     let gastosQ = supabase.from('gastos').select('monto_cop').gte('fecha', desde).lt('fecha', hastaExclusive)
     let prevBalQ = supabase
       .from('balances_diarios')
@@ -325,17 +326,19 @@ export default function DashboardPage() {
     deboQ = deboQ.eq('usuario_id', user.id)
     cierresPrevQ = cierresPrevQ.eq('usuario_id', user.id)
     invQ = invQ.eq('usuario_id', user.id)
-    arqQ = arqQ.eq('usuario_id', user.id)
+    cajaCierreQ = cajaCierreQ.eq('usuario_id', user.id)
+    cajaPreciosQ = cajaPreciosQ.eq('usuario_id', user.id)
     gastosQ = gastosQ.eq('usuario_id', user.id)
 
-    const [txRes, ndRes, dbRes, cPrevRes, invRes, arqRes, gastRes, prevBalRes, acumGanRes, acumGastRes] =
+    const [txRes, ndRes, dbRes, cPrevRes, invRes, cierreRes, preciosRes, gastRes, prevBalRes, acumGanRes, acumGastRes] =
       await Promise.all([
         txQuery,
         debenQ,
         deboQ,
         cierresPrevQ,
         invQ,
-        arqQ,
+        cajaCierreQ,
+        cajaPreciosQ,
         gastosQ,
         prevBalQ,
         cierresAcumQ,
@@ -357,12 +360,18 @@ export default function DashboardPage() {
     )
     setCierresPrevRows((cPrevRes.error ? [] : cPrevRes.data) as CierreRowParaArrastre[])
     setInvRows((invRes.error ? [] : invRes.data ?? []) as { divisa: string; cantidad_actual: number }[])
+    const precios = (preciosRes.error ? [] : preciosRes.data ?? []) as { moneda: string; precio_compra: number }[]
+    const pMap = new Map<string, number>()
+    for (const r of precios) pMap.set(String(r.moneda).toUpperCase(), Number(r.precio_compra))
     setSumArqueoCop(
-      arqRes.error
+      cierreRes.error
         ? 0
-        : (arqRes.data ?? []).reduce((s, r) => {
-            const row = r as { cantidad: number; precio_compra: number }
-            return s + Number(row.cantidad) * Number(row.precio_compra)
+        : (cierreRes.data ?? []).reduce((s, r) => {
+            const row = r as { moneda: string; monto: number }
+            const mon = String(row.moneda).toUpperCase()
+            const cant = Number(row.monto)
+            const pc = Number(pMap.get(mon) ?? 0)
+            return s + cant * pc
           }, 0)
     )
     setGastosDiaCop(
@@ -771,10 +780,6 @@ export default function DashboardPage() {
       <p className="text-sm text-slate-500">
         <a href="/caja" className="font-semibold underline">
           Caja
-        </a>{' '}
-        ·{' '}
-        <a href="/tengo" className="font-semibold underline">
-          Tengo
         </a>{' '}
         ·{' '}
         <a href="/historial" className="font-semibold underline">

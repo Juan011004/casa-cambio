@@ -117,10 +117,6 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
 
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (esHistorico) {
-      toast.error('No puede registrar deudas en una fecha histórica.')
-      return
-    }
     setLoading(true)
     try {
       const parsedMonto = parseFlexibleNumber(monto)
@@ -133,6 +129,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
         responsable,
         divisa,
         monto: parsedMonto,
+        fecha: fechaOp,
       })
       if (!res.ok) {
         toast.error('No se guardó', { description: res.error })
@@ -218,7 +215,6 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
             onChange={(e) => setResponsable(e.target.value)}
             required
             autoComplete="off"
-            disabled={esHistorico}
           />
         </div>
         <div>
@@ -230,7 +226,6 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
             className="input-field min-h-[48px] py-2.5 text-base"
             value={divisa}
             onChange={(e) => setDivisa(e.target.value)}
-            disabled={esHistorico}
           >
             {opciones.map((d) => (
               <option key={d.codigo} value={d.codigo}>
@@ -243,12 +238,11 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
           id="monto"
           label="Monto"
           maxFrac={2}
-          disabled={esHistorico}
           value={monto}
           onChange={setMonto}
           inputClassName="input-field input-numeric min-h-[48px] text-base"
         />
-        <button type="submit" disabled={loading || esHistorico} className="btn-primary min-h-[48px] w-full text-base font-semibold">
+        <button type="submit" disabled={loading} className="btn-primary min-h-[48px] w-full text-base font-semibold">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
         </button>
       </form>
@@ -283,7 +277,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
                       <button
                         type="button"
                         title="Abonar"
-                        disabled={abonandoId === r.id || esHistorico}
+                        disabled={abonandoId === r.id}
                         onClick={() => abrirAbono(r.id)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
                       >
