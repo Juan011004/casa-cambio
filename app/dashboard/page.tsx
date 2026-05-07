@@ -268,7 +268,12 @@ export default function DashboardPage() {
       .lt('fecha', fechaDia)
     let invQ = supabase.from('inventario').select('divisa,cantidad_actual')
     let cajaCierreQ = supabase.from('caja_diaria').select('moneda,monto').eq('tipo', 'CIERRE').eq('fecha', fechaDia)
-    let cajaPreciosQ = supabase.from('caja_precios').select('moneda,precio_compra').eq('fecha', fechaDia)
+    // Usar último precio vigente <= fecha (igual que en Caja).
+    let cajaPreciosQ = supabase
+      .from('caja_precios')
+      .select('moneda,precio_compra,fecha')
+      .lte('fecha', fechaDia)
+      .order('fecha', { ascending: false })
     let gastosQ = supabase.from('gastos').select('monto_cop').gte('fecha', desde).lt('fecha', hastaExclusive)
     let prevBalQ = supabase
       .from('balances_diarios')
@@ -323,9 +328,13 @@ export default function DashboardPage() {
     setDeboRows(foldLatestDeudas((dbRes.data ?? []) as unknown[]))
     setCierresPrevRows((cPrevRes.error ? [] : cPrevRes.data) as CierreRowParaArrastre[])
     setInvRows((invRes.error ? [] : invRes.data ?? []) as { divisa: string; cantidad_actual: number }[])
-    const precios = (preciosRes.error ? [] : preciosRes.data ?? []) as { moneda: string; precio_compra: number }[]
+    const precios = (preciosRes.error ? [] : preciosRes.data ?? []) as { moneda: string; precio_compra: number; fecha?: string }[]
     const pMap = new Map<string, number>()
-    for (const r of precios) pMap.set(String(r.moneda).toUpperCase(), Number(r.precio_compra))
+    // Como viene ordenado DESC, el primer match por moneda es el último precio vigente.
+    for (const r of precios) {
+      const k = String(r.moneda).toUpperCase()
+      if (!pMap.has(k)) pMap.set(k, Number(r.precio_compra))
+    }
     const cajaCop =
       cierreRes.error
         ? 0

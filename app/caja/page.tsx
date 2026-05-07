@@ -110,26 +110,12 @@ export default function CajaPage() {
     const preciosAyer: Record<string, number> = {}
     if (!cierresPrevRes.error) {
       const fold = saldoPromedioPorMonedaDesdeCierres((cierresPrevRes.data ?? []) as CierreRowParaArrastre[])
-      for (const [mon, v] of Array.from(fold.entries())) ayer[mon] = v.saldoAnterior
-
-      const rows = (cierresPrevRes.data ?? []) as unknown as {
-        moneda: string
-        fecha: string
-        promedio_compra: number
-        promedio_compra_acumulado: number
-      }[]
-      const pick = (code: string) => {
-        const only = rows
-          .filter((r) => String(r.moneda).toUpperCase() === code)
-          .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0]
-        if (!only) return 0
-        const pac = Number((only as any).promedio_compra_acumulado ?? 0)
-        const pc = Number((only as any).promedio_compra ?? 0)
-        const v = pac > 0 ? pac : pc
-        return Number.isFinite(v) ? v : 0
+      for (const [mon, v] of Array.from(fold.entries())) {
+        ayer[mon] = v.saldoAnterior
+        // usar el costo promedio anterior como "precio compra" por defecto (igual que Dashboard)
+        preciosAyer[mon] = Number(v.promedioAnterior ?? 0)
       }
-      preciosAyer.USD = pick('USD')
-      preciosAyer.EUR = pick('EUR')
+
     }
     setCierreAyerPorMoneda(ayer)
     setPrecioAyerUsdEur(preciosAyer)
@@ -149,8 +135,8 @@ export default function CajaPage() {
     for (const d of divisas) {
       const mon = d.codigo
       const saved = pm.get(mon)
-      const fallbackBase = preciosAyer.USD > 0 ? preciosAyer.USD : preciosAyer.EUR > 0 ? preciosAyer.EUR : 0
-      const fallback = mon === 'USD' ? preciosAyer.USD : mon === 'EUR' ? preciosAyer.EUR : fallbackBase
+      const fallbackBase = (preciosAyer.USD ?? 0) > 0 ? Number(preciosAyer.USD) : (preciosAyer.EUR ?? 0) > 0 ? Number(preciosAyer.EUR) : 0
+      const fallback = (preciosAyer[mon] ?? 0) > 0 ? Number(preciosAyer[mon]) : fallbackBase
       const v = saved != null && Number.isFinite(saved) && saved > 0 ? saved : fallback
       nextPrecios[mon] = v > 0 ? formatMilesEs(v, 4) : ''
     }
@@ -291,9 +277,9 @@ export default function CajaPage() {
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
                   <th className="border-r border-slate-200 px-2 py-2 text-left font-bold text-slate-800">Moneda</th>
-                  <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Precio compra</th>
                   <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Debo tener</th>
                   <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Cierre manual</th>
+                  <th className="border-r border-slate-200 px-2 py-2 font-bold text-slate-800">Precio compra</th>
                   <th className="px-2 py-2 font-bold text-slate-800">Diferencia</th>
                 </tr>
               </thead>
@@ -318,19 +304,6 @@ export default function CajaPage() {
                           </span>
                         </span>
                       </td>
-                      <td className="border-r border-slate-100 px-2 py-1.5 align-middle">
-                        <MoneyTextField
-                          id={`pc-${f.codigo}`}
-                          label={`Precio compra ${f.codigo}`}
-                          omitLabel
-                          maxFrac={4}
-                          disabled={!editPrecios}
-                          value={preciosCompra[f.codigo] ?? ''}
-                          onChange={(v) => setPreciosCompra((prev) => ({ ...prev, [f.codigo]: v }))}
-                          className="flex justify-center"
-                          inputClassName={cellInput}
-                        />
-                      </td>
                       <td className="border-r border-slate-100 px-2 py-2 align-middle font-mono font-semibold tabular-nums">
                         {formatMilesEs(f.estimado, 4)}
                       </td>
@@ -342,6 +315,19 @@ export default function CajaPage() {
                           maxFrac={2}
                           value={f.manualStr}
                           onChange={(v) => setMontosManualCierre((prev) => ({ ...prev, [f.codigo]: v }))}
+                          className="flex justify-center"
+                          inputClassName={cellInput}
+                        />
+                      </td>
+                      <td className="border-r border-slate-100 px-2 py-1.5 align-middle">
+                        <MoneyTextField
+                          id={`pc-${f.codigo}`}
+                          label={`Precio compra ${f.codigo}`}
+                          omitLabel
+                          maxFrac={4}
+                          disabled={!editPrecios}
+                          value={preciosCompra[f.codigo] ?? ''}
+                          onChange={(v) => setPreciosCompra((prev) => ({ ...prev, [f.codigo]: v }))}
                           className="flex justify-center"
                           inputClassName={cellInput}
                         />

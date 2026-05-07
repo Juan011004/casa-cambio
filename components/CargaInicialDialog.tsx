@@ -10,6 +10,7 @@ import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { errorMessage } from '@/lib/errorMessage'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { fechaLocalYYYYMMDD } from '@/lib/utils'
+import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 
 export function CargaInicialDialog({
   open,
@@ -20,6 +21,7 @@ export function CargaInicialDialog({
   onClose: () => void
   onGuardado: () => void
 }) {
+  const { fecha: fechaOperativa } = useFechaOperativa()
   const { rows } = useDivisasMaestro()
   const opciones = useMemo(() => (rows.length ? rows : DIVISAS_FALLBACK), [rows])
   const [fecha, setFecha] = useState(() => fechaLocalYYYYMMDD())
@@ -30,10 +32,11 @@ export function CargaInicialDialog({
 
   useEffect(() => {
     if (!open) return
-    setFecha(fechaLocalYYYYMMDD())
+    // Por defecto, aplica a la fecha operativa global (para editar días pasados desde Dashboard).
+    setFecha(fechaOperativa)
     setCantidad('')
     setPromedio('')
-  }, [open])
+  }, [open, fechaOperativa])
 
   if (!open) return null
 
