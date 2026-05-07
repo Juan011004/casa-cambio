@@ -245,57 +245,11 @@ export default function DashboardPage() {
       return
     }
 
-    if (fechaDia < hoy) {
-      const snapRes = await supabase
-        .from('balances_diarios')
-        .select('*')
-        .eq('usuario_id', user.id)
-        .eq('fecha', fechaDia)
-        .maybeSingle()
-
-      if (snapRes.data) {
-        const snap = snapRes.data as BalanceSnapRow
-        setBalanceSnap(snap)
-        setSnapshotMode(true)
-        setSinBackupHistorico(false)
-        setPrevDeboTenerCop(null)
-        setTxRows([])
-        setDebenRows([])
-        setDeboRows([])
-        setCierresPrevRows([])
-        setInvRows([])
-        setSumArqueoCop(0)
-        setCajaTotalCop(Number((snap as any).caja_total_cop ?? 0))
-        setGastosDiaCop(Number(snap.gastos_dia))
-
-        const [acumGanRes, acumGastRes] = await Promise.all([
-          supabase.from('cierres_diarios').select('fecha,ganancia_calculada').eq('usuario_id', user.id),
-          supabase.from('gastos').select('monto_cop').eq('usuario_id', user.id).lt('fecha', finAcumExclusive),
-        ])
-
-        setAcumGananciasCop(
-          sumGananciaHistoricaHastaFecha(
-            (acumGanRes.data ?? []) as { fecha: string; ganancia_calculada: unknown }[],
-            fechaDia
-          )
-        )
-        setAcumGastosCop(
-          acumGastRes.error
-            ? 0
-            : (acumGastRes.data ?? []).reduce((s, r) => s + Number((r as { monto_cop: number }).monto_cop ?? 0), 0)
-        )
-
-        setLoading(false)
-        return
-      }
-      setSnapshotMode(false)
-      setBalanceSnap(null)
-      setSinBackupHistorico(true)
-    } else {
-      setSnapshotMode(false)
-      setBalanceSnap(null)
-      setSinBackupHistorico(false)
-    }
+    // Siempre operar contra la BD por fecha operativa (incluso en días pasados),
+    // para poder editar cierres/carga inicial sin depender del snapshot.
+    setSnapshotMode(false)
+    setBalanceSnap(null)
+    setSinBackupHistorico(false)
 
     let txQuery = supabase
       .from('transacciones')
@@ -305,8 +259,9 @@ export default function DashboardPage() {
       .order('fecha', { ascending: false })
     txQuery = txQuery.eq('usuario_id', user.id)
 
-    let debenQ = supabase.from('deudas').select('divisa,monto').eq('tipo', 'DEBEN').eq('estado', 'PENDIENTE')
-    let deboQ = supabase.from('deudas').select('divisa,monto').eq('tipo', 'DEBO').eq('estado', 'PENDIENTE')
+    // Deudas versionadas: tomar última versión vigente hasta fin del día.
+    let debenQ = supabase.from('deudas').select('responsable,divisa,monto,fecha').eq('tipo', 'DEBEN').lt('fecha', hastaExclusive)
+    let deboQ = supabase.from('deudas').select('responsable,divisa,monto,fecha').eq('tipo', 'DEBO').lt('fecha', hastaExclusive)
     let cierresPrevQ = supabase
       .from('cierres_diarios')
       .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
@@ -350,18 +305,22 @@ export default function DashboardPage() {
       ])
 
     setTxRows((txRes.data ?? []) as Transaccion[])
-    setDebenRows(
-      (ndRes.data ?? []).map((r) => ({
-        divisa: String((r as Record<string, unknown>).divisa),
-        monto: Number((r as Record<string, unknown>).monto),
-      }))
-    )
-    setDeboRows(
-      (dbRes.data ?? []).map((r) => ({
-        divisa: String((r as Record<string, unknown>).divisa),
-        monto: Number((r as Record<string, unknown>).monto),
-      }))
-    )
+    const foldLatestDeudas = (rows: unknown[]) => {
+      const m = new Map<string, { divisa: string; monto: number }>()
+      for (const rr of rows as Record<string, unknown>[]) {
+        const responsable = String(rr.responsable ?? '')
+        const divisa = String(rr.divisa ?? '')
+        const key = `${responsable}||${divisa}`
+        if (m.has(key)) continue
+        const monto = Number(rr.monto ?? 0)
+        if (!Number.isFinite(monto) || monto <= 1e-12) continue
+        m.set(key, { divisa, monto })
+      }
+      return Array.from(m.values())
+    }
+
+    setDebenRows(foldLatestDeudas((ndRes.data ?? []) as unknown[]))
+    setDeboRows(foldLatestDeudas((dbRes.data ?? []) as unknown[]))
     setCierresPrevRows((cPrevRes.error ? [] : cPrevRes.data) as CierreRowParaArrastre[])
     setInvRows((invRes.error ? [] : invRes.data ?? []) as { divisa: string; cantidad_actual: number }[])
     const precios = (preciosRes.error ? [] : preciosRes.data ?? []) as { moneda: string; precio_compra: number }[]
@@ -722,9 +681,8 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={snapshotMode}
               onClick={() => setCargaInicialOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100"
             >
               <Package className="h-3.5 w-3.5" aria-hidden />
               Carga inicial

@@ -149,7 +149,8 @@ export default function CajaPage() {
     for (const d of divisas) {
       const mon = d.codigo
       const saved = pm.get(mon)
-      const fallback = mon === 'USD' ? preciosAyer.USD : mon === 'EUR' ? preciosAyer.EUR : 0
+      const fallbackBase = preciosAyer.USD > 0 ? preciosAyer.USD : preciosAyer.EUR > 0 ? preciosAyer.EUR : 0
+      const fallback = mon === 'USD' ? preciosAyer.USD : mon === 'EUR' ? preciosAyer.EUR : fallbackBase
       const v = saved != null && Number.isFinite(saved) && saved > 0 ? saved : fallback
       nextPrecios[mon] = v > 0 ? formatMilesEs(v, 4) : ''
     }
