@@ -74,6 +74,17 @@ function sumDeudasPendientes(rows: { divisa: string; monto: number }[]): { codig
     .map(([codigo, valor]) => ({ codigo, valor }))
 }
 
+function latestDeudasByKey(rows: { id: string; responsable: string; divisa: string; monto: number; fecha: string }[]) {
+  const latest = new Map<string, { id: string; responsable: string; divisa: string; monto: number; fecha: string }>()
+  // `rows` debe venir en orden fecha desc
+  for (const r of rows) {
+    const key = `${r.responsable}||${r.divisa}`
+    if (latest.has(key)) continue
+    latest.set(key, r)
+  }
+  return Array.from(latest.values()).filter((x) => Number(x.monto) > 1e-12)
+}
+
 /**
  * Calcula fila para `balances_diarios` (UPSERT) en la fecha local `fecha` (YYYY-MM-DD).
  */
@@ -117,13 +128,17 @@ export async function computeBalanceDiarioUpsert(
       .select('id,responsable,divisa,monto,fecha')
       .eq('usuario_id', userId)
       .eq('tipo', 'DEBEN')
-      .eq('estado', 'PENDIENTE'),
+      .lt('fecha', hastaExclusive)
+      .order('fecha', { ascending: false })
+      .limit(1000),
     supabase
       .from('deudas')
       .select('id,responsable,divisa,monto,fecha')
       .eq('usuario_id', userId)
       .eq('tipo', 'DEBO')
-      .eq('estado', 'PENDIENTE'),
+      .lt('fecha', hastaExclusive)
+      .order('fecha', { ascending: false })
+      .limit(1000),
     supabase.from('caja_diaria').select('moneda,monto').eq('usuario_id', userId).eq('fecha', fecha).eq('tipo', 'CIERRE'),
     supabase.from('caja_precios').select('moneda,precio_compra').eq('usuario_id', userId).eq('fecha', fecha),
     supabase
@@ -141,14 +156,32 @@ export async function computeBalanceDiarioUpsert(
 
   const copMap = rowsToCopMap((trmRes.data ?? []) as { codigo: string; valor_cop: number }[])
 
-  const debenRows = (debenRes.data ?? []).map((r) => ({
-    divisa: String((r as Record<string, unknown>).divisa),
-    monto: Number((r as Record<string, unknown>).monto),
-  }))
-  const deboRows = (deboRes.data ?? []).map((r) => ({
-    divisa: String((r as Record<string, unknown>).divisa),
-    monto: Number((r as Record<string, unknown>).monto),
-  }))
+  const debenRaw = (debenRes.data ?? []).map((r) => {
+    const row = r as Record<string, unknown>
+    return {
+      id: String(row.id ?? ''),
+      responsable: String(row.responsable ?? ''),
+      divisa: String(row.divisa ?? ''),
+      monto: Number(row.monto ?? 0),
+      fecha: String(row.fecha ?? ''),
+    }
+  })
+  const deboRaw = (deboRes.data ?? []).map((r) => {
+    const row = r as Record<string, unknown>
+    return {
+      id: String(row.id ?? ''),
+      responsable: String(row.responsable ?? ''),
+      divisa: String(row.divisa ?? ''),
+      monto: Number(row.monto ?? 0),
+      fecha: String(row.fecha ?? ''),
+    }
+  })
+
+  const debenLatest = latestDeudasByKey(debenRaw)
+  const deboLatest = latestDeudasByKey(deboRaw)
+
+  const debenRows = debenLatest.map((r) => ({ divisa: r.divisa, monto: r.monto }))
+  const deboRows = deboLatest.map((r) => ({ divisa: r.divisa, monto: r.monto }))
 
   const cierreRows = (cajaCierreRes.error ? [] : cajaCierreRes.data ?? []) as { moneda: string; monto: number }[]
   const precioRows = (cajaPrecioRes.error ? [] : cajaPrecioRes.data ?? []) as { moneda: string; precio_compra: number }[]
@@ -226,8 +259,8 @@ export async function computeBalanceDiarioUpsert(
 
   const detalle_deudas: Json = {
     /** Filas tal cual al momento del snapshot (para pantalla histórica). */
-    filas_deben: ((debenRes.data ?? []) as Record<string, unknown>[]).map(mapFilaDeuda),
-    filas_debo: ((deboRes.data ?? []) as Record<string, unknown>[]).map(mapFilaDeuda),
+    filas_deben: (debenLatest as unknown as Record<string, unknown>[]).map(mapFilaDeuda),
+    filas_debo: (deboLatest as unknown as Record<string, unknown>[]).map(mapFilaDeuda),
     deben: nosDebenLista.map((x) => ({
       codigo: x.codigo,
       valor_divisa: x.valor,

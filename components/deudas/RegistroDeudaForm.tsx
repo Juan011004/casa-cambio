@@ -53,23 +53,28 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
       .select('id,responsable,divisa,monto,fecha,estado')
       .eq('usuario_id', user.id)
       .eq('tipo', tipo)
-      .gte('fecha', desde)
       .lt('fecha', hastaExclusive)
       .order('fecha', { ascending: false })
       .limit(200)
-    setLista(
-      (data ?? []).map((r) => {
-        const row = r as Record<string, unknown>
-        return {
-          id: String(row.id),
-          responsable: String(row.responsable),
-          divisa: String(row.divisa),
-          monto: Number(row.monto),
-          fecha: String(row.fecha),
-          estado: (String(row.estado ?? 'PENDIENTE') as EstadoDeuda) || 'PENDIENTE',
-        }
-      })
-    )
+
+    const latestByKey = new Map<string, RegistroDeuda>()
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
+      const responsable = String(r.responsable ?? '')
+      const divisa = String(r.divisa ?? '')
+      const key = `${responsable}||${divisa}`
+      if (latestByKey.has(key)) continue // vienen ordenadas desc, la primera es la vigente
+      const row: RegistroDeuda = {
+        id: String(r.id ?? ''),
+        responsable,
+        divisa,
+        monto: Number(r.monto ?? 0),
+        fecha: String(r.fecha ?? ''),
+        estado: (String(r.estado ?? 'PENDIENTE') as EstadoDeuda) || 'PENDIENTE',
+      }
+      latestByKey.set(key, row)
+    }
+
+    setLista(Array.from(latestByKey.values()).filter((x) => Number(x.monto) > 1e-12))
     setCargandoLista(false)
   }, [supabase, tipo, fechaOp])
 
@@ -133,7 +138,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
     if (!window.confirm('¿Eliminar esta deuda?')) return
     setEliminandoId(id)
     try {
-      const res = await eliminarDeuda({ id })
+      const res = await eliminarDeuda({ id, fecha: fechaOp })
       if (!res.ok) {
         toast.error(res.error)
         return
@@ -156,7 +161,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
     }
     setEditandoId(filaModal.id)
     try {
-      const res = await editarDeudaMonto({ id: filaModal.id, monto: n })
+      const res = await editarDeudaMonto({ id: filaModal.id, monto: n, fecha: fechaOp })
       if (!res.ok) {
         toast.error(res.error)
         return

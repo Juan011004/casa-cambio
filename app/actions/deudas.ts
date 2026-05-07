@@ -178,7 +178,8 @@ export async function saldarDeuda(raw: unknown): Promise<ActionResult> {
  * Edita el saldo (monto) de una deuda directamente.
  * - Si `monto` = 0 => marca como SALDADO
  * - Si `monto` > 0 => PENDIENTE
- * Recalcula snapshots desde la fecha del registro en BD (no desde el día seleccionado en la UI).
+ * IMPORTANTE: no modifica la fila anterior. Inserta una nueva fila con la fecha operativa,
+ * de modo que el histórico anterior NO cambia y cada día parte del "último estado".
  */
 export async function editarDeudaMonto(raw: unknown): Promise<ActionResult> {
   const parsed = editarDeudaMontoSchema.safeParse(raw)
@@ -195,34 +196,38 @@ export async function editarDeudaMonto(raw: unknown): Promise<ActionResult> {
     } = await supabase.auth.getUser()
     if (userErr || !user?.id) return { ok: false, error: 'Sesión no válida.', code: 'AUTH' }
 
-    const { id, monto } = parsed.data
+    const { id, monto, fecha } = parsed.data
     const estado = monto <= 1e-12 ? 'SALDADO' : 'PENDIENTE'
 
     const { data: antes, error: selErr } = await supabase
       .from('deudas')
-      .select('fecha')
+      .select('tipo,responsable,divisa')
       .eq('id', id)
       .eq('usuario_id', user.id)
       .maybeSingle()
 
     if (selErr || !antes) return { ok: false, error: 'No se encontró la deuda.' }
 
+    const fechaTs = `${fecha}T12:00:00Z`
     const { error } = await supabase
       .from('deudas')
-      .update({ monto: estado === 'SALDADO' ? 0 : monto, estado })
-      .eq('id', id)
-      .eq('usuario_id', user.id)
+      .insert({
+        usuario_id: user.id,
+        tipo: String((antes as any).tipo),
+        responsable: String((antes as any).responsable),
+        divisa: String((antes as any).divisa),
+        monto: estado === 'SALDADO' ? 0 : monto,
+        estado,
+        fecha: fechaTs,
+      })
 
     if (error) {
-      logServerError('editarDeudaMonto/update', new Error(error.message))
-      return { ok: false, error: 'No se pudo actualizar la deuda.' }
+      logServerError('editarDeudaMonto/insert', new Error(error.message))
+      return { ok: false, error: 'No se pudo guardar el cambio.' }
     }
 
-    const fechaIso = String((antes as { fecha: string }).fecha).slice(0, 10)
-    if (/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
-      const rec = await recomputeBalancesDesde({ fecha: fechaIso })
-      if (!rec.ok) return { ok: false, error: rec.error }
-    }
+    const rec = await recomputeBalancesDesde({ fecha })
+    if (!rec.ok) return { ok: false, error: rec.error }
 
     revalidatePath('/dashboard')
     revalidatePath('/nos-deben')
@@ -236,9 +241,12 @@ export async function editarDeudaMonto(raw: unknown): Promise<ActionResult> {
   }
 }
 
-/** Elimina una fila de deuda y recalcula snapshots desde la fecha del registro. */
+/**
+ * "Elimina" una deuda para una fecha operativa: inserta una nueva fila con monto 0 (SALDADO)
+ * y recalcula snapshots desde esa fecha.
+ */
 export async function eliminarDeuda(raw: unknown): Promise<ActionResult> {
-  const parsed = z.object({ id: uuidSchema }).safeParse(raw)
+  const parsed = z.object({ id: uuidSchema, fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).safeParse(raw)
   if (!parsed.success) return { ok: false, error: 'Identificador inválido.' }
 
   try {
@@ -251,25 +259,31 @@ export async function eliminarDeuda(raw: unknown): Promise<ActionResult> {
 
     const { data: prev, error: selErr } = await supabase
       .from('deudas')
-      .select('fecha')
+      .select('tipo,responsable,divisa')
       .eq('id', parsed.data.id)
       .eq('usuario_id', user.id)
       .maybeSingle()
 
     if (selErr || !prev) return { ok: false, error: 'No se encontró la deuda.' }
 
-    const { error } = await supabase.from('deudas').delete().eq('id', parsed.data.id).eq('usuario_id', user.id)
+    const fechaTs = `${parsed.data.fecha}T12:00:00Z`
+    const { error } = await supabase.from('deudas').insert({
+      usuario_id: user.id,
+      tipo: String((prev as any).tipo),
+      responsable: String((prev as any).responsable),
+      divisa: String((prev as any).divisa),
+      monto: 0,
+      estado: 'SALDADO',
+      fecha: fechaTs,
+    })
 
     if (error) {
-      logServerError('eliminarDeuda/delete', new Error(error.message))
+      logServerError('eliminarDeuda/insert', new Error(error.message))
       return { ok: false, error: 'No se pudo eliminar.' }
     }
 
-    const fechaIso = String((prev as { fecha: string }).fecha).slice(0, 10)
-    if (/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
-      const rec = await recomputeBalancesDesde({ fecha: fechaIso })
-      if (!rec.ok) return { ok: false, error: rec.error }
-    }
+    const rec = await recomputeBalancesDesde({ fecha: parsed.data.fecha })
+    if (!rec.ok) return { ok: false, error: rec.error }
 
     revalidatePath('/dashboard')
     revalidatePath('/nos-deben')
