@@ -330,10 +330,11 @@ export default function DashboardPage() {
         const key = `${responsable}||${divisa}`
         if (m.has(key)) continue
         const monto = Number(rr.monto ?? 0)
-        if (!Number.isFinite(monto) || monto <= 1e-12) continue
-        m.set(key, { divisa, monto })
+        // IMPORTANTE: aunque el monto sea 0 (SALDADO), se debe registrar como "última versión"
+        // para que NO se caiga al registro anterior.
+        m.set(key, { divisa, monto: Number.isFinite(monto) ? monto : 0 })
       }
-      return Array.from(m.values())
+      return Array.from(m.values()).filter((x) => Number(x.monto) > 1e-12)
     }
 
     setDebenRows(foldLatestDeudas((ndRes.data ?? []) as unknown[]))
