@@ -9,6 +9,8 @@ export type FilaAuditoriaViva = {
   cantidadFinal: number
   promedioCompraHoy: number
   promedioVentaHoy: number
+  /** promedioAnterior - promedioCompraHoy (WAC usado en ganancia) */
+  deltaPromCompra: number
   gananciaCop: number
 }
 
@@ -32,29 +34,30 @@ export function monedasParaAuditoria(
 export function filasAuditoriaVivo(
   txsDelDia: Transaccion[],
   prevPorMoneda: Map<string, SaldoPromedioPrevio>,
-  monedas: string[]
+  monedas: string[],
+  overrides?: Map<string, { cantidad_inicial?: number | null; promedio_anterior?: number | null; promedio_compra_hoy?: number | null }>
 ): FilaAuditoriaViva[] {
   const out: FilaAuditoriaViva[] = []
   for (const moneda of monedas) {
     const prev = prevPorMoneda.get(moneda) ?? { saldoAnterior: 0, promedioAnterior: 0 }
+    const ov = overrides?.get(moneda) ?? null
     const a = agregarCompraVentaPorMoneda(txsDelDia, moneda)
-    const cantidadFinal = prev.saldoAnterior + a.totalCompraMonto - a.totalVentaMonto
-    const promedioCompraHoy = promedioCompraConArrastre(
-      txsDelDia,
-      moneda,
-      prev.saldoAnterior,
-      prev.promedioAnterior
-    )
+    const cantidadInicial = ov?.cantidad_inicial != null ? Number(ov.cantidad_inicial) : prev.saldoAnterior
+    const promedioAnterior = ov?.promedio_anterior != null ? Number(ov.promedio_anterior) : prev.promedioAnterior
+    const cantidadFinal = cantidadInicial + a.totalCompraMonto - a.totalVentaMonto
+    const promedioCompraHoyAuto = promedioCompraConArrastre(txsDelDia, moneda, cantidadInicial, promedioAnterior)
+    const promedioCompraHoy = ov?.promedio_compra_hoy != null ? Number(ov.promedio_compra_hoy) : promedioCompraHoyAuto
     const promedioVentaHoy = a.promedioVentaDia
     const gananciaCop =
       a.totalVentaMonto > 1e-12 ? a.totalVentaMonto * (promedioVentaHoy - promedioCompraHoy) : 0
     out.push({
       moneda,
-      cantidadInicial: prev.saldoAnterior,
-      promedioAnterior: prev.promedioAnterior,
+      cantidadInicial,
+      promedioAnterior,
       cantidadFinal,
       promedioCompraHoy,
       promedioVentaHoy,
+      deltaPromCompra: promedioAnterior - promedioCompraHoy,
       gananciaCop,
     })
   }

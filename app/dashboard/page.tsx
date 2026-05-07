@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Download, Package } from 'lucide-react'
+import { Download, Save } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 import { dayBoundsLocal, formatCOP, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
@@ -13,12 +13,14 @@ import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '
 import { exportAuditoriaVivoExcel } from '@/lib/exportCierresExcel'
 import { obtenerTrmMercado } from '@/app/actions/trm'
 import { TRM_TICKER_ORDER, type TrmMercadoFila } from '@/lib/trm-ticker'
-import { CargaInicialDialog } from '@/components/CargaInicialDialog'
 import { filasAuditoriaVivo, monedasParaAuditoria } from '@/lib/auditoriaVivo'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import type { Transaccion } from '@/types/database'
 import type { CopPorUnidad } from '@/lib/trm'
+import { parseFlexibleNumber } from '@/lib/parseMoney'
+import { toast } from 'sonner'
+import { upsertAuditoriaOverride } from '@/app/actions/auditoriaOverrides'
 
 type BalanceSnapRow = Database['public']['Tables']['balances_diarios']['Row']
 
@@ -209,13 +211,18 @@ export default function DashboardPage() {
   const [trmFilas, setTrmFilas] = useState<TrmMercadoFila[]>([])
   const [ultimaTrm, setUltimaTrm] = useState<string | null>(null)
   const [cierresPrevRows, setCierresPrevRows] = useState<CierreRowParaArrastre[]>([])
-  const [cargaInicialOpen, setCargaInicialOpen] = useState(false)
+  // Carga inicial ahora se edita inline en la tabla (overrides), no en un diálogo.
   const [invRows, setInvRows] = useState<{ divisa: string; cantidad_actual: number }[]>([])
   const [sumArqueoCop, setSumArqueoCop] = useState(0)
   const [cajaTotalCop, setCajaTotalCop] = useState(0)
   const [gastosDiaCop, setGastosDiaCop] = useState(0)
   const [acumGananciasCop, setAcumGananciasCop] = useState(0)
   const [acumGastosCop, setAcumGastosCop] = useState(0)
+  const [auditOverrides, setAuditOverrides] = useState<Map<string, { cantidad_inicial?: number | null; promedio_anterior?: number | null; promedio_compra_hoy?: number | null }>>(
+    () => new Map()
+  )
+  const [editAudit, setEditAudit] = useState(false)
+  const [savingAudit, setSavingAudit] = useState<Record<string, boolean>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -306,7 +313,13 @@ export default function DashboardPage() {
     cajaPreciosQ = cajaPreciosQ.eq('usuario_id', user.id)
     gastosQ = gastosQ.eq('usuario_id', user.id)
 
-    const [txRes, ndRes, dbRes, cPrevRes, invRes, cierreRes, preciosRes, gastRes, prevBalRes, acumGanRes, acumGastRes] =
+    const ovQ = (supabase as any)
+      .from('auditoria_overrides')
+      .select('moneda,cantidad_inicial,promedio_anterior,promedio_compra_hoy')
+      .eq('usuario_id', user.id)
+      .eq('fecha', fechaDia)
+
+    const [txRes, ndRes, dbRes, cPrevRes, invRes, cierreRes, preciosRes, gastRes, prevBalRes, acumGanRes, acumGastRes, ovRes] =
       await Promise.all([
         txQuery,
         debenQ,
@@ -319,6 +332,7 @@ export default function DashboardPage() {
         prevBalQ,
         cierresAcumQ,
         gastosAcumQ,
+        ovQ,
       ])
 
     setTxRows((txRes.data ?? []) as Transaccion[])
@@ -395,6 +409,18 @@ export default function DashboardPage() {
         ? 0
         : (acumGastRes.data ?? []).reduce((s, r) => s + Number((r as { monto_cop: number }).monto_cop ?? 0), 0)
     )
+
+    const ovMap = new Map<string, { cantidad_inicial?: number | null; promedio_anterior?: number | null; promedio_compra_hoy?: number | null }>()
+    for (const r of (ovRes?.error ? [] : ovRes?.data ?? []) as Record<string, unknown>[]) {
+      const mon = String(r.moneda ?? '').toUpperCase()
+      if (!mon) continue
+      ovMap.set(mon, {
+        cantidad_inicial: (r as any).cantidad_inicial ?? null,
+        promedio_anterior: (r as any).promedio_anterior ?? null,
+        promedio_compra_hoy: (r as any).promedio_compra_hoy ?? null,
+      })
+    }
+    setAuditOverrides(ovMap)
     setLoading(false)
   }, [supabase, fechaDia])
 
@@ -530,8 +556,8 @@ export default function DashboardPage() {
   )
 
   const filasAuditVivo = useMemo(
-    () => filasAuditoriaVivo(txRows, ultimoCierrePorMoneda, monedasAudit),
-    [txRows, ultimoCierrePorMoneda, monedasAudit]
+    () => filasAuditoriaVivo(txRows, ultimoCierrePorMoneda, monedasAudit, auditOverrides),
+    [txRows, ultimoCierrePorMoneda, monedasAudit, auditOverrides]
   )
 
   /** Arqueo por divisa valorado a precio de compra + deudas (me deben − debo), COP. */
@@ -675,11 +701,11 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setCargaInicialOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100"
+              onClick={() => setEditAudit((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-white"
             >
-              <Package className="h-3.5 w-3.5" aria-hidden />
-              Carga inicial
+              <Save className="h-3.5 w-3.5" aria-hidden />
+              {editAudit ? 'Bloquear edición' : 'Editar promedios'}
             </button>
             <button
               type="button"
@@ -707,19 +733,119 @@ export default function DashboardPage() {
                   <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra ant.</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Cant. final</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra hoy</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Δ prom (ant − hoy)</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Prom. venta hoy</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Ganancia</th>
                 </tr>
               </thead>
               <tbody>
-                {filasAuditVivo.map((row) => (
+                {filasAuditVivo.map((row) => {
+                  const key = row.moneda
+                  const saving = !!savingAudit[key]
+                  const ov = auditOverrides.get(key) ?? {}
+                  const cantStr = ov.cantidad_inicial != null ? String(ov.cantidad_inicial) : ''
+                  const promAntStr = ov.promedio_anterior != null ? String(ov.promedio_anterior) : ''
+                  const promHoyStr = ov.promedio_compra_hoy != null ? String(ov.promedio_compra_hoy) : ''
+                  const save = async (partial: { cantidad_inicial?: string; promedio_anterior?: string; promedio_compra_hoy?: string }) => {
+                    setSavingAudit((p) => ({ ...p, [key]: true }))
+                    try {
+                      const payload: any = { fecha: fechaDia, moneda: key }
+                      if ('cantidad_inicial' in partial) {
+                        const n = parseFlexibleNumber(partial.cantidad_inicial ?? '')
+                        payload.cantidad_inicial = partial.cantidad_inicial?.trim() ? n : undefined
+                      }
+                      if ('promedio_anterior' in partial) {
+                        const n = parseFlexibleNumber(partial.promedio_anterior ?? '')
+                        payload.promedio_anterior = partial.promedio_anterior?.trim() ? n : undefined
+                      }
+                      if ('promedio_compra_hoy' in partial) {
+                        const n = parseFlexibleNumber(partial.promedio_compra_hoy ?? '')
+                        payload.promedio_compra_hoy = partial.promedio_compra_hoy?.trim() ? n : undefined
+                      }
+                      const res = await upsertAuditoriaOverride(payload)
+                      if (!res.ok) {
+                        toast.error(res.error)
+                        return
+                      }
+                      toast.success('Guardado')
+                      await load()
+                    } finally {
+                      setSavingAudit((p) => ({ ...p, [key]: false }))
+                    }
+                  }
+
+                  return (
                   <tr key={row.moneda} className="border-b border-slate-100">
                     <td className="px-1.5 py-1.5 font-mono text-slate-800">{fechaDia}</td>
                     <td className="px-1.5 py-1.5 text-left font-medium sm:text-center">{etiquetaMoneda(row.moneda)}</td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.cantidadInicial, 4)}</td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.promedioAnterior, 2)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">
+                      {editAudit ? (
+                        <input
+                          value={cantStr}
+                          disabled={saving}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setAuditOverrides((m) =>
+                              new Map(m).set(key, {
+                                ...ov,
+                                cantidad_inicial: v.trim() ? parseFlexibleNumber(v) : null,
+                              })
+                            )
+                          }}
+                          onBlur={() => void save({ cantidad_inicial: cantStr })}
+                          className="mx-auto w-full max-w-[140px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
+                          inputMode="decimal"
+                        />
+                      ) : (
+                        formatMilesEs(row.cantidadInicial, 4)
+                      )}
+                    </td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">
+                      {editAudit ? (
+                        <input
+                          value={promAntStr}
+                          disabled={saving}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setAuditOverrides((m) =>
+                              new Map(m).set(key, {
+                                ...ov,
+                                promedio_anterior: v.trim() ? parseFlexibleNumber(v) : null,
+                              })
+                            )
+                          }}
+                          onBlur={() => void save({ promedio_anterior: promAntStr })}
+                          className="mx-auto w-full max-w-[140px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
+                          inputMode="decimal"
+                        />
+                      ) : (
+                        formatMilesEs(row.promedioAnterior, 2)
+                      )}
+                    </td>
                     <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.cantidadFinal, 4)}</td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.promedioCompraHoy, 2)}</td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">
+                      {editAudit ? (
+                        <input
+                          value={promHoyStr}
+                          disabled={saving}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setAuditOverrides((m) =>
+                              new Map(m).set(key, {
+                                ...ov,
+                                promedio_compra_hoy: v.trim() ? parseFlexibleNumber(v) : null,
+                              })
+                            )
+                          }}
+                          onBlur={() => void save({ promedio_compra_hoy: promHoyStr })}
+                          className="mx-auto w-full max-w-[140px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
+                          inputMode="decimal"
+                        />
+                      ) : (
+                        formatMilesEs(row.promedioCompraHoy, 2)
+                      )}
+                    </td>
+                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.deltaPromCompra, 2)}</td>
                     <td className="px-1.5 py-1.5 font-mono tabular-nums">
                       {row.promedioVentaHoy > 1e-12 ? formatMilesEs(row.promedioVentaHoy, 2) : formatMilesEs(0, 2)}
                     </td>
@@ -727,18 +853,13 @@ export default function DashboardPage() {
                       {Math.abs(row.gananciaCop) < 1e-6 ? formatMilesEs(0, 0) : formatCOP(row.gananciaCop)}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
       </section>
-
-      <CargaInicialDialog
-        open={cargaInicialOpen}
-        onClose={() => setCargaInicialOpen(false)}
-        onGuardado={() => void load()}
-      />
 
       <p className="text-sm text-slate-500">
         <a href="/caja" className="font-semibold underline">
