@@ -259,9 +259,21 @@ export default function DashboardPage() {
       .order('fecha', { ascending: false })
     txQuery = txQuery.eq('usuario_id', user.id)
 
-    // Deudas versionadas: tomar última versión vigente hasta fin del día.
-    let debenQ = supabase.from('deudas').select('responsable,divisa,monto,fecha').eq('tipo', 'DEBEN').lt('fecha', hastaExclusive)
-    let deboQ = supabase.from('deudas').select('responsable,divisa,monto,fecha').eq('tipo', 'DEBO').lt('fecha', hastaExclusive)
+    // Deudas versionadas: tomar última versión vigente hasta fin del día (orden desc para poder "pickear" por llave).
+    let debenQ = supabase
+      .from('deudas')
+      .select('responsable,divisa,monto,fecha')
+      .eq('tipo', 'DEBEN')
+      .lt('fecha', hastaExclusive)
+      .order('fecha', { ascending: false })
+      .limit(2000)
+    let deboQ = supabase
+      .from('deudas')
+      .select('responsable,divisa,monto,fecha')
+      .eq('tipo', 'DEBO')
+      .lt('fecha', hastaExclusive)
+      .order('fecha', { ascending: false })
+      .limit(2000)
     let cierresPrevQ = supabase
       .from('cierres_diarios')
       .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
@@ -328,13 +340,20 @@ export default function DashboardPage() {
     setDeboRows(foldLatestDeudas((dbRes.data ?? []) as unknown[]))
     setCierresPrevRows((cPrevRes.error ? [] : cPrevRes.data) as CierreRowParaArrastre[])
     setInvRows((invRes.error ? [] : invRes.data ?? []) as { divisa: string; cantidad_actual: number }[])
-    const precios = (preciosRes.error ? [] : preciosRes.data ?? []) as { moneda: string; precio_compra: number; fecha?: string }[]
+    const precios = (preciosRes.error ? [] : preciosRes.data ?? []) as {
+      moneda: string
+      precio_compra: number
+      fecha?: string
+    }[]
     const pMap = new Map<string, number>()
     // Como viene ordenado DESC, el primer match por moneda es el último precio vigente.
     for (const r of precios) {
       const k = String(r.moneda).toUpperCase()
       if (!pMap.has(k)) pMap.set(k, Number(r.precio_compra))
     }
+    const prevMap = saldoPromedioPorMonedaDesdeCierres((cPrevRes.error ? [] : cPrevRes.data ?? []) as CierreRowParaArrastre[])
+    const fallbackBase = (prevMap.get('USD')?.promedioAnterior ?? 0) > 0 ? (prevMap.get('USD')?.promedioAnterior ?? 0) : prevMap.get('EUR')?.promedioAnterior ?? 0
+
     const cajaCop =
       cierreRes.error
         ? 0
@@ -342,7 +361,9 @@ export default function DashboardPage() {
             const row = r as { moneda: string; monto: number }
             const mon = String(row.moneda).toUpperCase()
             const cant = Number(row.monto)
-            const pc = Number(pMap.get(mon) ?? 0)
+            const saved = Number(pMap.get(mon) ?? 0)
+            const fb = (prevMap.get(mon)?.promedioAnterior ?? 0) > 0 ? (prevMap.get(mon)?.promedioAnterior ?? 0) : fallbackBase
+            const pc = saved > 0 ? saved : fb
             return s + cant * pc
           }, 0)
     setCajaTotalCop(cajaCop)
@@ -646,43 +667,6 @@ export default function DashboardPage() {
             )
           })}
         </div>
-      </section>
-
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
-        {loading ? (
-          <p className="p-4 text-base text-slate-500">…</p>
-        ) : recientes.length === 0 ? (
-          <p className="p-4 text-base text-slate-500">—</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] border-collapse text-base">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-100">
-                  <th className="px-2 py-2 font-semibold text-slate-700">Hora</th>
-                  <th className="px-2 py-2 font-semibold text-slate-700">Tipo</th>
-                  <th className="px-2 py-2 font-semibold text-slate-700">Divisa</th>
-                  <th className="px-2 py-2 text-right font-semibold text-slate-700">Monto</th>
-                  <th className="px-2 py-2 text-right font-semibold text-slate-700">Tasa</th>
-                  <th className="px-2 py-2 text-right font-semibold text-slate-700">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recientes.map((tx) => (
-                  <tr key={tx.id} className="border-b border-slate-100">
-                    <td className="px-2 py-1.5 font-mono text-slate-800">
-                      {new Intl.DateTimeFormat('es-CO', { timeStyle: 'short' }).format(new Date(tx.fecha))}
-                    </td>
-                    <td className="px-2 py-1.5 font-bold uppercase">{tx.tipo}</td>
-                    <td className="px-2 py-1.5 font-medium">{tx.moneda}</td>
-                    <td className="px-2 py-1.5 text-right font-mono">{formatMilesEs(Number(tx.monto_divisa), 4)}</td>
-                    <td className="px-2 py-1.5 text-right font-mono">{formatMilesEs(tx.tasa_aplicada, 2)}</td>
-                    <td className="px-2 py-1.5 text-right font-mono font-semibold">{formatCOP(tx.total_cop)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </section>
 
       <section className="mx-auto max-w-5xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
