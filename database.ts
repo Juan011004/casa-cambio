@@ -302,6 +302,35 @@ export interface Database {
         }
         Relationships: []
       }
+      auditoria_overrides: {
+        Row: {
+          id: string
+          usuario_id: string
+          fecha: string
+          moneda: string
+          cantidad_inicial: number | null
+          promedio_anterior: number | null
+          promedio_compra_hoy: number | null
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          usuario_id: string
+          fecha: string
+          moneda: string
+          cantidad_inicial?: number | null
+          promedio_anterior?: number | null
+          promedio_compra_hoy?: number | null
+          updated_at?: string
+        }
+        Update: {
+          cantidad_inicial?: number | null
+          promedio_anterior?: number | null
+          promedio_compra_hoy?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       pagos_deudas: {
         Row: {
           id: string
