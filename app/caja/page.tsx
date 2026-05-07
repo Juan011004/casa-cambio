@@ -59,10 +59,6 @@ export default function CajaPage() {
   const [cierreAyerPorMoneda, setCierreAyerPorMoneda] = useState<Record<string, number>>({})
   const [precioAyerUsdEur, setPrecioAyerUsdEur] = useState<Record<string, number>>({})
 
-  useEffect(() => {
-    if (esHistorico) setEditPrecios(false)
-  }, [esHistorico])
-
   const cargar = useCallback(async () => {
     setLoading(true)
     const {
@@ -198,7 +194,6 @@ export default function CajaPage() {
   }, [codigos, cierreAyerPorMoneda, comprasDia, ventasDia, montosManualCierre])
 
   const onFinalizarCierre = async () => {
-    if (esHistorico) return
     setFinalizando(true)
     try {
       const manualCierre: Record<string, number> = {}
@@ -222,7 +217,6 @@ export default function CajaPage() {
   }
 
   const onGuardarPrecios = async () => {
-    if (esHistorico) return
     setGuardandoPrecios(true)
     try {
       const out: Record<string, number> = {}
@@ -263,10 +257,8 @@ export default function CajaPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-4 text-base text-black">
       {esHistorico ? (
-        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          <span className="font-semibold">Solo lectura:</span> vista de la caja del{' '}
-          <span className="font-mono font-semibold">{fecha}</span> según lo guardado en la base. Para operar el día actual,
-          cambie la fecha global a hoy.
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Editando fecha pasada: <span className="font-mono font-semibold">{fecha}</span>
         </p>
       ) : null}
 
@@ -278,13 +270,12 @@ export default function CajaPage() {
             <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-200 px-3 py-2">
               <button
                 type="button"
-                disabled={esHistorico}
                 onClick={() => setEditPrecios((v) => !v)}
-                className="btn-secondary min-h-[44px] text-sm disabled:opacity-50"
+                className="btn-secondary min-h-[44px] text-sm"
               >
                 {editPrecios ? 'Bloquear precios' : 'Editar precios'}
               </button>
-              {editPrecios && !esHistorico ? (
+              {editPrecios ? (
                 <button
                   type="button"
                   disabled={guardandoPrecios}
@@ -332,7 +323,7 @@ export default function CajaPage() {
                           label={`Precio compra ${f.codigo}`}
                           omitLabel
                           maxFrac={4}
-                          disabled={esHistorico || !editPrecios}
+                          disabled={!editPrecios}
                           value={preciosCompra[f.codigo] ?? ''}
                           onChange={(v) => setPreciosCompra((prev) => ({ ...prev, [f.codigo]: v }))}
                           className="flex justify-center"
@@ -348,7 +339,6 @@ export default function CajaPage() {
                           label={`Cierre manual ${f.codigo}`}
                           omitLabel
                           maxFrac={2}
-                          disabled={esHistorico}
                           value={f.manualStr}
                           onChange={(v) => setMontosManualCierre((prev) => ({ ...prev, [f.codigo]: v }))}
                           className="flex justify-center"
@@ -370,7 +360,7 @@ export default function CajaPage() {
             <div className="flex justify-center border-t border-slate-200 px-3 py-4">
               <button
                 type="button"
-                disabled={finalizando || esHistorico}
+                disabled={finalizando}
                 onClick={() => void onFinalizarCierre()}
                 className="min-h-[52px] min-w-[220px] rounded-xl bg-gradient-to-b from-slate-800 to-slate-950 px-8 text-base font-bold text-white shadow-lg hover:from-slate-700 hover:to-slate-900 disabled:opacity-50"
               >

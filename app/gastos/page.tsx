@@ -72,10 +72,6 @@ export default function GastosPage() {
 
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (esHistorico) {
-      toast.error('Modo histórico: solo lectura. Cambie la fecha global a hoy para registrar gastos.')
-      return
-    }
     const m = parseFlexibleNumber(monto)
     if (!concepto.trim()) {
       toast.error('Escriba el concepto.')
@@ -104,7 +100,6 @@ export default function GastosPage() {
   }
 
   const borrar = async (id: string) => {
-    if (esHistorico) return
     setDeletingId(id)
     try {
       const res = await eliminarGasto({ id })
@@ -124,16 +119,14 @@ export default function GastosPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-5 text-base text-black">
       {esHistorico ? (
-        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-          <span className="font-semibold">Solo lectura:</span> gastos registrados el{' '}
-          <span className="font-mono font-semibold">{fechaOperativa}</span>. No se pueden añadir ni borrar desde aquí para
-          no alterar el histórico guardado.
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Editando fecha pasada: <span className="font-mono font-semibold">{fechaOperativa}</span>
         </p>
       ) : null}
       <form
         onSubmit={guardar}
         noValidate
-        className={`card-pro flex flex-col gap-3 border border-slate-200 p-4 sm:flex-row sm:flex-wrap sm:items-end ${esHistorico ? 'pointer-events-none opacity-50' : ''}`}
+        className="card-pro flex flex-col gap-3 border border-slate-200 p-4 sm:flex-row sm:flex-wrap sm:items-end"
       >
         <div className="min-w-0 flex-1">
           <label className="label" htmlFor="g-concepto">
@@ -157,7 +150,7 @@ export default function GastosPage() {
         />
         <button
           type="submit"
-          disabled={loading || esHistorico}
+          disabled={loading}
           className="btn-primary min-h-[48px] w-full shrink-0 px-6 text-base font-semibold sm:w-auto"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
@@ -192,7 +185,7 @@ export default function GastosPage() {
                       <button
                         type="button"
                         title="Eliminar"
-                        disabled={esHistorico || deletingId === r.id}
+                        disabled={deletingId === r.id}
                         onClick={() => void borrar(r.id)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-700 bg-white text-red-800 hover:bg-red-50 disabled:opacity-50"
                       >

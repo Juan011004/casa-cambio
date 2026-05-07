@@ -43,7 +43,7 @@ const METODOS: MetodoPago[] = ['Efectivo', 'Nequi', 'Cheque']
 export default function SellForm() {
   const { rows } = useDivisasMaestro()
   const [loading, setLoading] = useState(false)
-  const { fecha, esHistorico } = useFechaOperativa()
+  const { fecha } = useFechaOperativa()
 
   const opciones = useMemo(() => (rows.length ? rows : DIVISAS_FALLBACK), [rows])
 
@@ -75,10 +75,6 @@ export default function SellForm() {
   const totalCOP = totalCopFromTasa(cantidad, tasa)
 
   const onSubmit = async (data: SellFormData) => {
-    if (esHistorico) {
-      toast.error('Modo histórico: solo lectura. Use la fecha de hoy para registrar operaciones.')
-      return
-    }
     setLoading(true)
     try {
       const res = await registrarVenta({
@@ -107,16 +103,10 @@ export default function SellForm() {
 
   return (
     <section className="mx-auto w-full max-w-xl">
-      {esHistorico ? (
-        <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-          <span className="font-semibold">Solo lectura:</span> fecha pasada seleccionada. Cambie la fecha global a hoy
-          para vender.
-        </p>
-      ) : null}
       <form
         onSubmit={handleSubmit(onSubmit)}
         noValidate
-        className={`card-pro space-y-3 p-4 text-base text-black ${esHistorico ? 'pointer-events-none opacity-50' : ''}`}
+        className="card-pro space-y-3 p-4 text-base text-black"
       >
         <div className="space-y-3">
           <div>
@@ -126,7 +116,6 @@ export default function SellForm() {
             <select
               id="divisa-v"
               {...register('divisa')}
-              disabled={esHistorico}
               className="input-field min-h-[48px] py-2.5 text-base"
             >
               {opciones.map((d) => (
@@ -142,7 +131,6 @@ export default function SellForm() {
             id="cant-v"
             label="Cantidad"
             maxFrac={4}
-            disabled={esHistorico}
             value={watch('cantidad')}
             onChange={(v) => setValue('cantidad', v, { shouldValidate: false })}
           />
@@ -152,7 +140,6 @@ export default function SellForm() {
             id="precio-v"
             label="Precio de venta"
             maxFrac={2}
-            disabled={esHistorico}
             value={watch('precio')}
             onChange={(v) => setValue('precio', v, { shouldValidate: false })}
           />
@@ -165,7 +152,6 @@ export default function SellForm() {
             <select
               id="pago-v"
               {...register('metodo_pago')}
-              disabled={esHistorico}
               className="input-field min-h-[48px] py-2.5 text-base"
             >
               {METODOS.map((m) => (
@@ -188,7 +174,7 @@ export default function SellForm() {
 
         <button
           type="submit"
-          disabled={loading || esHistorico}
+          disabled={loading}
           className="btn-primary mt-1 min-h-[48px] w-full text-base font-semibold"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Registrar venta'}

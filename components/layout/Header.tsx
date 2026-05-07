@@ -42,9 +42,7 @@ export function Header() {
           className="input-field max-w-[200px] min-h-[40px] shrink-0 text-sm"
         />
         {esHistorico ? (
-          <span className="truncate text-xs font-medium text-amber-800">
-            Viendo datos históricos del {fecha}
-          </span>
+          <span className="truncate text-xs font-medium text-amber-800">Editando fecha pasada: {fecha}</span>
         ) : null}
       </div>
       {userLabel ? (
