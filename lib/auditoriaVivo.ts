@@ -2,6 +2,15 @@ import { agregarCompraVentaPorMoneda, promedioCompraConArrastre } from '@/lib/ci
 import type { SaldoPromedioPrevio } from '@/lib/ultimoCierre'
 import type { Transaccion } from '@/types/database'
 
+/** Valores guardados en `auditoria_overrides` (null = sin override en BD). */
+export type AuditoriaOverrideVals = {
+  cantidad_inicial?: number | null
+  promedio_anterior?: number | null
+  promedio_compra_hoy?: number | null
+  /** Si está definido, sustituye la ganancia COP calculada por moneda (prioridad manual). */
+  ganancia_cop?: number | null
+}
+
 export type FilaAuditoriaViva = {
   moneda: string
   cantidadInicial: number
@@ -35,7 +44,7 @@ export function filasAuditoriaVivo(
   txsDelDia: Transaccion[],
   prevPorMoneda: Map<string, SaldoPromedioPrevio>,
   monedas: string[],
-  overrides?: Map<string, { cantidad_inicial?: number | null; promedio_anterior?: number | null; promedio_compra_hoy?: number | null }>
+  overrides?: Map<string, AuditoriaOverrideVals>
 ): FilaAuditoriaViva[] {
   const out: FilaAuditoriaViva[] = []
   for (const moneda of monedas) {
@@ -49,7 +58,11 @@ export function filasAuditoriaVivo(
     const promedioCompraHoy = ov?.promedio_compra_hoy != null ? Number(ov.promedio_compra_hoy) : promedioCompraHoyAuto
     const promedioVentaHoy = a.promedioVentaDia
     const gananciaCop =
-      a.totalVentaMonto > 1e-12 ? a.totalVentaMonto * (promedioVentaHoy - promedioCompraHoy) : 0
+      ov?.ganancia_cop != null && Number.isFinite(Number(ov.ganancia_cop))
+        ? Number(ov.ganancia_cop)
+        : a.totalVentaMonto > 1e-12
+          ? a.totalVentaMonto * (promedioVentaHoy - promedioCompraHoy)
+          : 0
     out.push({
       moneda,
       cantidadInicial,
@@ -60,6 +73,24 @@ export function filasAuditoriaVivo(
       deltaPromCompra: promedioAnterior - promedioCompraHoy,
       gananciaCop,
     })
+  }
+  return out
+}
+
+/**
+ * Lista de ganancias por moneda alineada con la tabla de auditoría (respeta overrides y monedas sin tx pero con inventario/cierre).
+ */
+export function gananciaListaDesdeAuditoria(
+  txsDelDia: Transaccion[],
+  inv: { divisa: string }[],
+  prevPorMoneda: Map<string, SaldoPromedioPrevio>,
+  overrides?: Map<string, AuditoriaOverrideVals>
+): { codigo: string; valor: number }[] {
+  const monedas = monedasParaAuditoria(txsDelDia, inv, prevPorMoneda)
+  const filas = filasAuditoriaVivo(txsDelDia, prevPorMoneda, monedas, overrides)
+  const out: { codigo: string; valor: number }[] = []
+  for (const row of filas) {
+    if (Math.abs(row.gananciaCop) > 1e-6) out.push({ codigo: row.moneda, valor: row.gananciaCop })
   }
   return out
 }

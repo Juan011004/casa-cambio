@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS public.auditoria_overrides (
   cantidad_inicial numeric(20,6),
   promedio_anterior numeric(20,6),
   promedio_compra_hoy numeric(20,6),
+  ganancia_cop numeric(20,2),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 

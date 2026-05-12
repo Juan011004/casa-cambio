@@ -3,8 +3,8 @@ import type { Database, Json } from '@/database'
 import type { Transaccion } from '@/types/database'
 import type { CopPorUnidad } from '@/lib/trm'
 import { dayBoundsLocal } from '@/lib/utils'
-import { gananciaDiaPonderadaCop } from '@/lib/cierreAuditoria'
 import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '@/lib/ultimoCierre'
+import { gananciaListaDesdeAuditoria, type AuditoriaOverrideVals } from '@/lib/auditoriaVivo'
 import { montoDivisaEnCop, saldoDeudasNetoCop, totalDeudasMontoCop } from '@/lib/balanceCop'
 import { formatCOP, formatMilesEs } from '@/lib/formatMoney'
 import { q6 } from '@/lib/precision'
@@ -31,21 +31,6 @@ function rowsToCopMap(rows: { codigo: string; valor_cop: number }[]): CopPorUnid
     }
   }
   if (!out.OTRO && out.USD) out.OTRO = out.USD
-  return out
-}
-
-function gananciaListaDesdeTx(
-  rows: Transaccion[],
-  prevPorMoneda: Map<string, { saldoAnterior: number; promedioAnterior: number }>
-): { codigo: string; valor: number }[] {
-  const codes = new Set<string>()
-  for (const r of rows) codes.add(r.moneda)
-  const out: { codigo: string; valor: number }[] = []
-  for (const codigo of Array.from(codes).sort()) {
-    const p = prevPorMoneda.get(codigo) ?? { saldoAnterior: 0, promedioAnterior: 0 }
-    const g = gananciaDiaPonderadaCop(rows, codigo, p.saldoAnterior, p.promedioAnterior)
-    if (Math.abs(g) > 1e-6) out.push({ codigo, valor: g })
-  }
   return out
 }
 
@@ -107,6 +92,8 @@ export async function computeBalanceDiarioUpsert(
     cajaPrecioRes,
     gastRes,
     cPrevRes,
+    invRes,
+    ovRes,
   ] = await Promise.all([
     supabase.from('trm_mercado').select('codigo,valor_cop'),
     supabase
@@ -152,6 +139,12 @@ export async function computeBalanceDiarioUpsert(
       .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
       .eq('usuario_id', userId)
       .lt('fecha', fecha),
+    supabase.from('inventario').select('divisa,cantidad_actual').eq('usuario_id', userId),
+    supabase
+      .from('auditoria_overrides')
+      .select('moneda,cantidad_inicial,promedio_anterior,promedio_compra_hoy,ganancia_cop')
+      .eq('usuario_id', userId)
+      .eq('fecha', fecha),
   ])
 
   const copMap = rowsToCopMap((trmRes.data ?? []) as { codigo: string; valor_cop: number }[])
@@ -206,7 +199,24 @@ export async function computeBalanceDiarioUpsert(
     (cPrevRes.error ? [] : cPrevRes.data) as CierreRowParaArrastre[]
   )
 
-  const gananciaLista = gananciaListaDesdeTx(txs, ultimoCierrePorMoneda)
+  const invForAudit = (invRes.error ? [] : invRes.data ?? []).map((r) => ({
+    divisa: String((r as { divisa?: string }).divisa ?? '').toUpperCase(),
+  }))
+
+  const ovMap = new Map<string, AuditoriaOverrideVals>()
+  for (const r of ovRes.error ? [] : ovRes.data ?? []) {
+    const row = r as Record<string, unknown>
+    const mon = String(row.moneda ?? '').toUpperCase()
+    if (!mon) continue
+    ovMap.set(mon, {
+      cantidad_inicial: row.cantidad_inicial != null ? Number(row.cantidad_inicial) : null,
+      promedio_anterior: row.promedio_anterior != null ? Number(row.promedio_anterior) : null,
+      promedio_compra_hoy: row.promedio_compra_hoy != null ? Number(row.promedio_compra_hoy) : null,
+      ganancia_cop: row.ganancia_cop != null ? Number(row.ganancia_cop) : null,
+    })
+  }
+
+  const gananciaLista = gananciaListaDesdeAuditoria(txs, invForAudit, ultimoCierrePorMoneda, ovMap)
   const gananciasDia = gananciaLista.reduce((s, x) => s + x.valor, 0)
 
   const comprasLista = sumTxMontoDivisa(txs, 'COMPRA')

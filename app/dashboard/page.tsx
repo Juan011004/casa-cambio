@@ -8,12 +8,16 @@ import { dayBoundsLocal, formatCOP, formatMilesEs, fechaLocalYYYYMMDD } from '@/
 import { sumGananciaHistoricaHastaFecha, sumGananciaHistoricaTotal } from '@/lib/gananciaCierres'
 import { saldoDeudasNetoCop, totalDeudasMontoCop } from '@/lib/balanceCop'
 import type { Database } from '@/database'
-import { gananciaDiaPonderadaCop } from '@/lib/cierreAuditoria'
 import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '@/lib/ultimoCierre'
 import { exportAuditoriaVivoExcel } from '@/lib/exportCierresExcel'
 import { obtenerTrmMercado } from '@/app/actions/trm'
 import { TRM_TICKER_ORDER, type TrmMercadoFila } from '@/lib/trm-ticker'
-import { filasAuditoriaVivo, monedasParaAuditoria } from '@/lib/auditoriaVivo'
+import {
+  filasAuditoriaVivo,
+  gananciaListaDesdeAuditoria,
+  monedasParaAuditoria,
+  type AuditoriaOverrideVals,
+} from '@/lib/auditoriaVivo'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import type { Transaccion } from '@/types/database'
@@ -64,21 +68,6 @@ function sumTxMontoDivisa(rows: Transaccion[], tipo: 'COMPRA' | 'VENTA'): { codi
     .filter(([, v]) => Math.abs(v) > 1e-10)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([codigo, valor]) => ({ codigo, valor }))
-}
-
-function gananciaListaDesdeTx(
-  rows: Transaccion[],
-  prevPorMoneda: Map<string, { saldoAnterior: number; promedioAnterior: number }>
-): { codigo: string; valor: number }[] {
-  const codes = new Set<string>()
-  for (const r of rows) codes.add(r.moneda)
-  const out: { codigo: string; valor: number }[] = []
-  for (const codigo of Array.from(codes).sort()) {
-    const p = prevPorMoneda.get(codigo) ?? { saldoAnterior: 0, promedioAnterior: 0 }
-    const g = gananciaDiaPonderadaCop(rows, codigo, p.saldoAnterior, p.promedioAnterior)
-    if (Math.abs(g) > 1e-6) out.push({ codigo, valor: g })
-  }
-  return out
 }
 
 function sumDeudasPendientes(rows: { divisa: string; monto: number }[]): { codigo: string; valor: number }[] {
@@ -218,9 +207,7 @@ export default function DashboardPage() {
   const [gastosDiaCop, setGastosDiaCop] = useState(0)
   const [acumGananciasCop, setAcumGananciasCop] = useState(0)
   const [acumGastosCop, setAcumGastosCop] = useState(0)
-  const [auditOverrides, setAuditOverrides] = useState<Map<string, { cantidad_inicial?: number | null; promedio_anterior?: number | null; promedio_compra_hoy?: number | null }>>(
-    () => new Map()
-  )
+  const [auditOverrides, setAuditOverrides] = useState<Map<string, AuditoriaOverrideVals>>(() => new Map())
   const [editAudit, setEditAudit] = useState(false)
   const [savingAudit, setSavingAudit] = useState<Record<string, boolean>>({})
 
@@ -315,7 +302,7 @@ export default function DashboardPage() {
 
     const ovQ = (supabase as any)
       .from('auditoria_overrides')
-      .select('moneda,cantidad_inicial,promedio_anterior,promedio_compra_hoy')
+      .select('moneda,cantidad_inicial,promedio_anterior,promedio_compra_hoy,ganancia_cop')
       .eq('usuario_id', user.id)
       .eq('fecha', fechaDia)
 
@@ -410,7 +397,7 @@ export default function DashboardPage() {
         : (acumGastRes.data ?? []).reduce((s, r) => s + Number((r as { monto_cop: number }).monto_cop ?? 0), 0)
     )
 
-    const ovMap = new Map<string, { cantidad_inicial?: number | null; promedio_anterior?: number | null; promedio_compra_hoy?: number | null }>()
+    const ovMap = new Map<string, AuditoriaOverrideVals>()
     for (const r of (ovRes?.error ? [] : ovRes?.data ?? []) as Record<string, unknown>[]) {
       const mon = String(r.moneda ?? '').toUpperCase()
       if (!mon) continue
@@ -418,6 +405,7 @@ export default function DashboardPage() {
         cantidad_inicial: (r as any).cantidad_inicial ?? null,
         promedio_anterior: (r as any).promedio_anterior ?? null,
         promedio_compra_hoy: (r as any).promedio_compra_hoy ?? null,
+        ganancia_cop: (r as any).ganancia_cop != null ? Number((r as any).ganancia_cop) : null,
       })
     }
     setAuditOverrides(ovMap)
@@ -452,6 +440,11 @@ export default function DashboardPage() {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'balances_diarios', filter: `usuario_id=eq.${user.id}` },
+          () => void load()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'auditoria_overrides', filter: `usuario_id=eq.${user.id}` },
           () => void load()
         )
         .subscribe()
@@ -503,8 +496,8 @@ export default function DashboardPage() {
       const g = dt.ganancia ?? []
       return g.map((x) => ({ codigo: x.codigo, valor: Number(x.valor_cop) }))
     }
-    return gananciaListaDesdeTx(txRows, ultimoCierrePorMoneda)
-  }, [snapshotMode, balanceSnap, txRows, ultimoCierrePorMoneda])
+    return gananciaListaDesdeAuditoria(txRows, invRows, ultimoCierrePorMoneda, auditOverrides)
+  }, [snapshotMode, balanceSnap, txRows, invRows, ultimoCierrePorMoneda, auditOverrides])
 
   const totalGananciaDiaCop = useMemo(() => {
     if (snapshotMode && balanceSnap) return Number(balanceSnap.ganancias_dia)
@@ -705,7 +698,7 @@ export default function DashboardPage() {
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-white"
             >
               <Save className="h-3.5 w-3.5" aria-hidden />
-              {editAudit ? 'Bloquear edición' : 'Editar promedios'}
+              {editAudit ? 'Bloquear edición' : 'Editar promedios / ganancia'}
             </button>
             <button
               type="button"
@@ -735,7 +728,7 @@ export default function DashboardPage() {
                   <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra hoy</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Δ prom (ant − hoy)</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Prom. venta hoy</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Ganancia</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Ganancia (COP)</th>
                 </tr>
               </thead>
               <tbody>
@@ -746,10 +739,16 @@ export default function DashboardPage() {
                   const cantStr = ov.cantidad_inicial != null ? String(ov.cantidad_inicial) : ''
                   const promAntStr = ov.promedio_anterior != null ? String(ov.promedio_anterior) : ''
                   const promHoyStr = ov.promedio_compra_hoy != null ? String(ov.promedio_compra_hoy) : ''
-                  const save = async (partial: { cantidad_inicial?: string; promedio_anterior?: string; promedio_compra_hoy?: string }) => {
+                  const gananciaStr = ov.ganancia_cop != null ? String(ov.ganancia_cop) : ''
+                  const save = async (partial: {
+                    cantidad_inicial?: string
+                    promedio_anterior?: string
+                    promedio_compra_hoy?: string
+                    ganancia_cop?: string
+                  }) => {
                     setSavingAudit((p) => ({ ...p, [key]: true }))
                     try {
-                      const payload: any = { fecha: fechaDia, moneda: key }
+                      const payload: Record<string, unknown> = { fecha: fechaDia, moneda: key }
                       if ('cantidad_inicial' in partial) {
                         const n = parseFlexibleNumber(partial.cantidad_inicial ?? '')
                         payload.cantidad_inicial = partial.cantidad_inicial?.trim() ? n : undefined
@@ -761,6 +760,10 @@ export default function DashboardPage() {
                       if ('promedio_compra_hoy' in partial) {
                         const n = parseFlexibleNumber(partial.promedio_compra_hoy ?? '')
                         payload.promedio_compra_hoy = partial.promedio_compra_hoy?.trim() ? n : undefined
+                      }
+                      if ('ganancia_cop' in partial) {
+                        const t = partial.ganancia_cop?.trim() ?? ''
+                        payload.ganancia_cop = t ? parseFlexibleNumber(t) : null
                       }
                       const res = await upsertAuditoriaOverride(payload)
                       if (!res.ok) {
@@ -850,7 +853,33 @@ export default function DashboardPage() {
                       {row.promedioVentaHoy > 1e-12 ? formatMilesEs(row.promedioVentaHoy, 2) : formatMilesEs(0, 2)}
                     </td>
                     <td className="px-1.5 py-1.5 font-mono tabular-nums font-semibold text-slate-900">
-                      {Math.abs(row.gananciaCop) < 1e-6 ? formatMilesEs(0, 0) : formatCOP(row.gananciaCop)}
+                      {editAudit ? (
+                        <input
+                          value={gananciaStr}
+                          disabled={saving}
+                          title="Vacío = cálculo automático por promedios. Valor = ganancia COP fija para esta moneda."
+                          placeholder="Auto"
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setAuditOverrides((m) =>
+                              new Map(m).set(key, {
+                                ...ov,
+                                ganancia_cop: v.trim() ? parseFlexibleNumber(v) : null,
+                              })
+                            )
+                          }}
+                          onBlur={() => void save({ ganancia_cop: gananciaStr })}
+                          className="mx-auto w-full max-w-[120px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
+                          inputMode="decimal"
+                        />
+                      ) : (
+                        <span className="inline-flex flex-col items-center gap-0.5">
+                          <span>{Math.abs(row.gananciaCop) < 1e-6 ? formatMilesEs(0, 0) : formatCOP(row.gananciaCop)}</span>
+                          {ov.ganancia_cop != null ? (
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Manual</span>
+                          ) : null}
+                        </span>
+                      )}
                     </td>
                   </tr>
                   )

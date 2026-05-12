@@ -311,6 +311,7 @@ export interface Database {
           cantidad_inicial: number | null
           promedio_anterior: number | null
           promedio_compra_hoy: number | null
+          ganancia_cop: number | null
           updated_at: string
         }
         Insert: {
@@ -321,12 +322,14 @@ export interface Database {
           cantidad_inicial?: number | null
           promedio_anterior?: number | null
           promedio_compra_hoy?: number | null
+          ganancia_cop?: number | null
           updated_at?: string
         }
         Update: {
           cantidad_inicial?: number | null
           promedio_anterior?: number | null
           promedio_compra_hoy?: number | null
+          ganancia_cop?: number | null
           updated_at?: string
         }
         Relationships: []
