@@ -136,7 +136,7 @@ export async function computeBalanceDiarioUpsert(
       .lt('fecha', hastaExclusive),
     supabase
       .from('cierres_diarios')
-      .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
+      .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado,id,created_at')
       .eq('usuario_id', userId)
       .lt('fecha', fecha),
     supabase.from('inventario').select('divisa,cantidad_actual').eq('usuario_id', userId),

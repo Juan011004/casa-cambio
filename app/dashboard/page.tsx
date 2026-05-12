@@ -270,16 +270,17 @@ export default function DashboardPage() {
       .limit(2000)
     let cierresPrevQ = supabase
       .from('cierres_diarios')
-      .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado')
+      .select('moneda,fecha,cierre_manual,promedio_compra,promedio_compra_acumulado,id,created_at')
       .lt('fecha', fechaDia)
     let invQ = supabase.from('inventario').select('divisa,cantidad_actual')
     let cajaCierreQ = supabase.from('caja_diaria').select('moneda,monto').eq('tipo', 'CIERRE').eq('fecha', fechaDia)
     // Usar último precio vigente <= fecha (igual que en Caja).
     let cajaPreciosQ = supabase
       .from('caja_precios')
-      .select('moneda,precio_compra,fecha')
+      .select('moneda,precio_compra,fecha,ultima_modificacion')
       .lte('fecha', fechaDia)
       .order('fecha', { ascending: false })
+      .order('ultima_modificacion', { ascending: false })
     let gastosQ = supabase.from('gastos').select('monto_cop').gte('fecha', desde).lt('fecha', hastaExclusive)
     let prevBalQ = supabase
       .from('balances_diarios')

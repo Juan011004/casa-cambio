@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
@@ -83,16 +83,17 @@ export default function CajaPage() {
         .lt('fecha', hastaExclusive),
       supabase
         .from('cierres_diarios')
-        .select('moneda,cierre_manual,fecha,promedio_compra,promedio_compra_acumulado')
+        .select('moneda,cierre_manual,fecha,promedio_compra,promedio_compra_acumulado,id,created_at')
         .eq('usuario_id', user.id)
         .lt('fecha', fecha),
       // Para monedas “estables”: traer el último precio <= fecha (copiar hacia adelante).
       supabase
         .from('caja_precios')
-        .select('moneda,precio_compra,fecha')
+        .select('moneda,precio_compra,fecha,ultima_modificacion')
         .eq('usuario_id', user.id)
         .lte('fecha', fecha)
-        .order('fecha', { ascending: false }),
+        .order('fecha', { ascending: false })
+        .order('ultima_modificacion', { ascending: false }),
     ])
 
     const ci: Record<string, number> = {}
@@ -143,11 +144,51 @@ export default function CajaPage() {
     setPreciosCompra(nextPrecios)
 
     setLoading(false)
-  }, [supabase, fecha])
+  }, [supabase, fecha, divisas])
 
   useEffect(() => {
     void cargar()
   }, [cargar])
+
+  useEffect(() => {
+    let active = true
+    let channel: ReturnType<typeof supabase.channel> | null = null
+    void (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!active || !user?.id) return
+
+      channel = supabase
+        .channel('caja-sync')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'transacciones', filter: `usuario_id=eq.${user.id}` },
+          () => void cargar()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'caja_diaria', filter: `usuario_id=eq.${user.id}` },
+          () => void cargar()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'caja_precios', filter: `usuario_id=eq.${user.id}` },
+          () => void cargar()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'cierres_diarios', filter: `usuario_id=eq.${user.id}` },
+          () => void cargar()
+        )
+        .subscribe()
+    })()
+
+    return () => {
+      active = false
+      if (channel) void supabase.removeChannel(channel)
+    }
+  }, [supabase, cargar])
 
   useEffect(() => {
     const nextM: Record<string, string> = {}
