@@ -18,8 +18,8 @@ export type FilaAuditoriaViva = {
   cantidadFinal: number
   promedioCompraHoy: number
   promedioVentaHoy: number
-  /** promedioAnterior - promedioCompraHoy (WAC usado en ganancia) */
-  deltaPromCompra: number
+  /** prom. venta hoy − prom. compra hoy (COP por unidad de divisa) */
+  deltaVentaMenosCompraHoy: number
   gananciaCop: number
 }
 
@@ -70,7 +70,7 @@ export function filasAuditoriaVivo(
       cantidadFinal,
       promedioCompraHoy,
       promedioVentaHoy,
-      deltaPromCompra: promedioAnterior - promedioCompraHoy,
+      deltaVentaMenosCompraHoy: promedioVentaHoy - promedioCompraHoy,
       gananciaCop,
     })
   }

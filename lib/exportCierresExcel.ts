@@ -15,6 +15,7 @@ export function exportAuditoriaVivoExcel(
     'Cant. final': r.cantidadFinal,
     'Prom. compra hoy': r.promedioCompraHoy,
     'Prom. venta hoy': r.promedioVentaHoy,
+    'Δ (venta − compra) hoy': r.deltaVentaMenosCompraHoy,
     'Ganancia (COP)': r.gananciaCop,
   }))
   const ws = XLSX.utils.json_to_sheet(

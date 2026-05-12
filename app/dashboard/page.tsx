@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, Save } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
@@ -82,6 +82,27 @@ function sumDeudasPendientes(rows: { divisa: string; monto: number }[]): { codig
     .map(([codigo, valor]) => ({ codigo, valor }))
 }
 
+type AuditFieldTextRow = { ci: string; pa: string; pch: string; g: string }
+
+function buildAuditFieldText(
+  filas: ReturnType<typeof filasAuditoriaVivo>,
+  auditOverrides: Map<string, AuditoriaOverrideVals>
+): Record<string, AuditFieldTextRow> {
+  const out: Record<string, AuditFieldTextRow> = {}
+  for (const row of filas) {
+    const mon = row.moneda
+    const ov = auditOverrides.get(mon) ?? {}
+    const fmt = (n: number, max: number) => (Number.isFinite(n) ? formatMilesEs(n, max) : '')
+    out[mon] = {
+      ci: ov.cantidad_inicial != null ? fmt(ov.cantidad_inicial, 8) : fmt(row.cantidadInicial, 8),
+      pa: ov.promedio_anterior != null ? fmt(ov.promedio_anterior, 8) : fmt(row.promedioAnterior, 8),
+      pch: ov.promedio_compra_hoy != null ? fmt(ov.promedio_compra_hoy, 8) : fmt(row.promedioCompraHoy, 8),
+      g: ov.ganancia_cop != null ? fmt(ov.ganancia_cop, 2) : '',
+    }
+  }
+  return out
+}
+
 function TarjetaBalanceCop({
   titulo,
   valorCop,
@@ -93,10 +114,12 @@ function TarjetaBalanceCop({
 }) {
   const bar = ld ? 'border-l-slate-400' : 'border-l-[#0047AB]'
   return (
-    <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
-      <div className="min-h-[4.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
-        <p className="mt-1 truncate font-mono text-2xl font-bold leading-tight tabular-nums text-slate-900">
+    <div
+      className={`overflow-hidden rounded-xl border border-slate-200/90 bg-gradient-to-br from-white via-slate-50/40 to-slate-100/60 shadow-md ring-1 ring-slate-200/50 ${bar} border-l-[4px]`}
+    >
+      <div className="min-h-[4.75rem] px-3 py-2.5 pl-3.5">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">{titulo}</h2>
+        <p className="mt-1 min-w-0 break-words text-pretty font-mono text-lg font-bold leading-snug tabular-nums text-slate-900 sm:text-xl">
           {ld ? '…' : formatCOP(valorCop)}
         </p>
       </div>
@@ -116,10 +139,12 @@ function TarjetaResumenCop({
   bar: string
 }) {
   return (
-    <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
-      <div className="min-h-[4.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
-        <p className="mt-1 truncate font-mono text-2xl font-bold leading-tight tabular-nums text-slate-900">
+    <div
+      className={`overflow-hidden rounded-xl border border-slate-200/90 bg-gradient-to-br from-white via-slate-50/40 to-slate-100/60 shadow-md ring-1 ring-slate-200/50 ${bar} border-l-[4px]`}
+    >
+      <div className="min-h-[4.75rem] px-3 py-2.5 pl-3.5">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">{titulo}</h2>
+        <p className="mt-1 min-w-0 break-words text-pretty font-mono text-lg font-bold leading-snug tabular-nums text-slate-900 sm:text-xl">
           {ld ? '…' : formatCOP(valorCop)}
         </p>
       </div>
@@ -152,28 +177,35 @@ function TarjetaCompacta({
           ? 'border-l-sky-500'
           : 'border-l-violet-500'
   return (
-    <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${bar} border-l-[4px]`}>
-      <div className="min-h-[5.5rem] bg-slate-50/40 px-2.5 py-2 pl-3">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-600">{titulo}</h2>
+    <div
+      className={`overflow-hidden rounded-xl border border-slate-200/90 bg-gradient-to-br from-white via-slate-50/40 to-slate-100/60 shadow-md ring-1 ring-slate-200/50 ${bar} border-l-[4px]`}
+    >
+      <div className="min-h-[5.75rem] px-3 py-2.5 pl-3.5">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">{titulo}</h2>
         {!items.length ? (
           <p className="mt-2 text-base text-slate-400">—</p>
         ) : (
-          <ul className="mt-1 max-h-20 space-y-0.5 overflow-y-auto">
+          <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto pr-0.5">
             {items.map((x) => (
-              <li key={x.codigo} className="flex justify-between gap-2 font-mono text-sm tabular-nums text-slate-800">
-                <span className="font-semibold">{x.codigo}</span>
-                <span>{formatMilesEs(x.valor, decItems)}</span>
+              <li
+                key={x.codigo}
+                className="flex min-w-0 justify-between gap-2 font-mono text-sm tabular-nums text-slate-800"
+              >
+                <span className="shrink-0 font-semibold">{x.codigo}</span>
+                <span className="min-w-0 shrink text-right break-words">{formatMilesEs(x.valor, decItems)}</span>
               </li>
             ))}
           </ul>
         )}
       </div>
       {totalCopFooter !== undefined && (
-        <div className="border-t border-slate-200 bg-slate-50/90 px-2.5 py-2 pl-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+        <div className="border-t border-slate-200/90 bg-white/80 px-3 py-2.5 pl-3.5 backdrop-blur-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             {totalFooterLabel ?? 'Total (COP)'}
           </p>
-          <p className="truncate font-mono text-lg font-bold tabular-nums text-slate-900">{formatCOP(totalCopFooter)}</p>
+          <p className="mt-0.5 min-w-0 break-words text-pretty font-mono text-base font-bold leading-snug tabular-nums text-slate-900 sm:text-lg">
+            {formatCOP(totalCopFooter)}
+          </p>
         </div>
       )}
     </div>
@@ -210,6 +242,7 @@ export default function DashboardPage() {
   const [auditOverrides, setAuditOverrides] = useState<Map<string, AuditoriaOverrideVals>>(() => new Map())
   const [editAudit, setEditAudit] = useState(false)
   const [savingAudit, setSavingAudit] = useState<Record<string, boolean>>({})
+  const [auditFieldText, setAuditFieldText] = useState<Record<string, AuditFieldTextRow>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -554,7 +587,15 @@ export default function DashboardPage() {
     [txRows, ultimoCierrePorMoneda, monedasAudit, auditOverrides]
   )
 
-  /** Arqueo por divisa valorado a precio de compra + deudas (me deben − debo), COP. */
+  useEffect(() => {
+    if (!editAudit) {
+      setAuditFieldText({})
+      return
+    }
+    if (loading) return
+    setAuditFieldText(buildAuditFieldText(filasAuditVivo, auditOverrides))
+  }, [editAudit, loading, filasAuditVivo, auditOverrides])
+
   const tengoCop = useMemo(() => {
     if (snapshotMode && balanceSnap) return Number(balanceSnap.tengo_total)
     return sumArqueoCop + saldoDeudasNetoCop(debenRows, deboRows, copMap)
@@ -598,6 +639,9 @@ export default function DashboardPage() {
     for (const f of trmFilas) m.set(f.codigo, f)
     return m
   }, [trmFilas])
+
+  const auditFieldTextRef = useRef<Record<string, AuditFieldTextRow>>({})
+  auditFieldTextRef.current = auditFieldText
 
   const recientes = useMemo(() => txRows.slice(0, 10), [txRows])
 
@@ -690,12 +734,24 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-5xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
-        <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-200 px-3 py-2">
-          <div className="flex flex-wrap items-center gap-2">
+      <section className="mx-auto max-w-5xl overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-lg ring-1 ring-slate-200/40">
+        <div className="flex flex-col gap-2 border-b border-slate-200/90 px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between">
+          <p className="max-w-xl text-left text-[11px] leading-snug text-slate-600">
+            <span className="font-semibold text-slate-800">Alcance por fecha:</span> los ajustes de promedios y ganancia
+            (y los precios guardados en <span className="font-mono">Caja</span>) quedan ligados a la{' '}
+            <span className="font-semibold">fecha operativa {fechaDia}</span>: no reescriben cierres de días anteriores en
+            la base. Si existe cadena de backups, un recálculo puede actualizar <span className="font-mono">balances_diarios</span>{' '}
+            desde este día hacia adelante, no hacia el pasado.
+          </p>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <button
               type="button"
-              onClick={() => setEditAudit((v) => !v)}
+              onClick={() =>
+                setEditAudit((v) => {
+                  if (v) setAuditFieldText({})
+                  return !v
+                })
+              }
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-white"
             >
               <Save className="h-3.5 w-3.5" aria-hidden />
@@ -718,7 +774,7 @@ export default function DashboardPage() {
           <p className="p-4 text-center text-base text-slate-500">Sin divisas con saldo o movimiento para este día.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse text-center text-base">
+            <table className="w-full min-w-[920px] border-collapse text-center text-base">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
                   <th className="px-1.5 py-2 font-bold text-slate-700">Fecha</th>
@@ -727,8 +783,8 @@ export default function DashboardPage() {
                   <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra ant.</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Cant. final</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra hoy</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Δ prom (ant − hoy)</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Prom. venta hoy</th>
+                  <th className="px-1.5 py-2 font-bold text-slate-700">Δ (venta − compra) hoy</th>
                   <th className="px-1.5 py-2 font-bold text-slate-700">Ganancia (COP)</th>
                 </tr>
               </thead>
@@ -737,33 +793,27 @@ export default function DashboardPage() {
                   const key = row.moneda
                   const saving = !!savingAudit[key]
                   const ov = auditOverrides.get(key) ?? {}
-                  const cantStr = ov.cantidad_inicial != null ? String(ov.cantidad_inicial) : ''
-                  const promAntStr = ov.promedio_anterior != null ? String(ov.promedio_anterior) : ''
-                  const promHoyStr = ov.promedio_compra_hoy != null ? String(ov.promedio_compra_hoy) : ''
-                  const gananciaStr = ov.ganancia_cop != null ? String(ov.ganancia_cop) : ''
-                  const save = async (partial: {
-                    cantidad_inicial?: string
-                    promedio_anterior?: string
-                    promedio_compra_hoy?: string
-                    ganancia_cop?: string
-                  }) => {
+                  const tx = auditFieldText[key] ?? { ci: '', pa: '', pch: '', g: '' }
+
+                  const saveField = async (field: 'ci' | 'pa' | 'pch' | 'g') => {
                     setSavingAudit((p) => ({ ...p, [key]: true }))
                     try {
+                      const cur = auditFieldTextRef.current[key] ?? { ci: '', pa: '', pch: '', g: '' }
                       const payload: Record<string, unknown> = { fecha: fechaDia, moneda: key }
-                      if ('cantidad_inicial' in partial) {
-                        const n = parseFlexibleNumber(partial.cantidad_inicial ?? '')
-                        payload.cantidad_inicial = partial.cantidad_inicial?.trim() ? n : undefined
+                      if (field === 'ci') {
+                        const t = cur.ci.trim()
+                        payload.cantidad_inicial = t ? parseFlexibleNumber(t) : undefined
                       }
-                      if ('promedio_anterior' in partial) {
-                        const n = parseFlexibleNumber(partial.promedio_anterior ?? '')
-                        payload.promedio_anterior = partial.promedio_anterior?.trim() ? n : undefined
+                      if (field === 'pa') {
+                        const t = cur.pa.trim()
+                        payload.promedio_anterior = t ? parseFlexibleNumber(t) : undefined
                       }
-                      if ('promedio_compra_hoy' in partial) {
-                        const n = parseFlexibleNumber(partial.promedio_compra_hoy ?? '')
-                        payload.promedio_compra_hoy = partial.promedio_compra_hoy?.trim() ? n : undefined
+                      if (field === 'pch') {
+                        const t = cur.pch.trim()
+                        payload.promedio_compra_hoy = t ? parseFlexibleNumber(t) : undefined
                       }
-                      if ('ganancia_cop' in partial) {
-                        const t = partial.ganancia_cop?.trim() ?? ''
+                      if (field === 'g') {
+                        const t = cur.g.trim()
                         payload.ganancia_cop = t ? parseFlexibleNumber(t) : null
                       }
                       const res = await upsertAuditoriaOverride(payload)
@@ -778,111 +828,90 @@ export default function DashboardPage() {
                     }
                   }
 
+                  const patchTx = (patch: Partial<AuditFieldTextRow>) => {
+                    setAuditFieldText((prev) => {
+                      const base = prev[key] ?? { ci: '', pa: '', pch: '', g: '' }
+                      return { ...prev, [key]: { ...base, ...patch } }
+                    })
+                  }
+
                   return (
-                  <tr key={row.moneda} className="border-b border-slate-100">
-                    <td className="px-1.5 py-1.5 font-mono text-slate-800">{fechaDia}</td>
-                    <td className="px-1.5 py-1.5 text-left font-medium sm:text-center">{etiquetaMoneda(row.moneda)}</td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">
-                      {editAudit ? (
-                        <input
-                          value={cantStr}
-                          disabled={saving}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            setAuditOverrides((m) =>
-                              new Map(m).set(key, {
-                                ...ov,
-                                cantidad_inicial: v.trim() ? parseFlexibleNumber(v) : null,
-                              })
-                            )
-                          }}
-                          onBlur={() => void save({ cantidad_inicial: cantStr })}
-                          className="mx-auto w-full max-w-[140px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
-                          inputMode="decimal"
-                        />
-                      ) : (
-                        formatMilesEs(row.cantidadInicial, 4)
-                      )}
-                    </td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">
-                      {editAudit ? (
-                        <input
-                          value={promAntStr}
-                          disabled={saving}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            setAuditOverrides((m) =>
-                              new Map(m).set(key, {
-                                ...ov,
-                                promedio_anterior: v.trim() ? parseFlexibleNumber(v) : null,
-                              })
-                            )
-                          }}
-                          onBlur={() => void save({ promedio_anterior: promAntStr })}
-                          className="mx-auto w-full max-w-[140px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
-                          inputMode="decimal"
-                        />
-                      ) : (
-                        formatMilesEs(row.promedioAnterior, 2)
-                      )}
-                    </td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.cantidadFinal, 4)}</td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">
-                      {editAudit ? (
-                        <input
-                          value={promHoyStr}
-                          disabled={saving}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            setAuditOverrides((m) =>
-                              new Map(m).set(key, {
-                                ...ov,
-                                promedio_compra_hoy: v.trim() ? parseFlexibleNumber(v) : null,
-                              })
-                            )
-                          }}
-                          onBlur={() => void save({ promedio_compra_hoy: promHoyStr })}
-                          className="mx-auto w-full max-w-[140px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
-                          inputMode="decimal"
-                        />
-                      ) : (
-                        formatMilesEs(row.promedioCompraHoy, 2)
-                      )}
-                    </td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.deltaPromCompra, 2)}</td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums">
-                      {row.promedioVentaHoy > 1e-12 ? formatMilesEs(row.promedioVentaHoy, 2) : formatMilesEs(0, 2)}
-                    </td>
-                    <td className="px-1.5 py-1.5 font-mono tabular-nums font-semibold text-slate-900">
-                      {editAudit ? (
-                        <input
-                          value={gananciaStr}
-                          disabled={saving}
-                          title="Vacío = cálculo automático por promedios. Valor = ganancia COP fija para esta moneda."
-                          placeholder="Auto"
-                          onChange={(e) => {
-                            const v = e.target.value
-                            setAuditOverrides((m) =>
-                              new Map(m).set(key, {
-                                ...ov,
-                                ganancia_cop: v.trim() ? parseFlexibleNumber(v) : null,
-                              })
-                            )
-                          }}
-                          onBlur={() => void save({ ganancia_cop: gananciaStr })}
-                          className="mx-auto w-full max-w-[120px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
-                          inputMode="decimal"
-                        />
-                      ) : (
-                        <span className="inline-flex flex-col items-center gap-0.5">
-                          <span>{Math.abs(row.gananciaCop) < 1e-6 ? formatMilesEs(0, 0) : formatCOP(row.gananciaCop)}</span>
-                          {ov.ganancia_cop != null ? (
-                            <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Manual</span>
-                          ) : null}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
+                    <tr key={row.moneda} className="border-b border-slate-100">
+                      <td className="px-1.5 py-1.5 font-mono text-slate-800">{fechaDia}</td>
+                      <td className="px-1.5 py-1.5 text-left font-medium sm:text-center">{etiquetaMoneda(row.moneda)}</td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">
+                        {editAudit ? (
+                          <input
+                            value={tx.ci}
+                            disabled={saving}
+                            onChange={(e) => patchTx({ ci: e.target.value })}
+                            onBlur={() => void saveField('ci')}
+                            className="mx-auto w-full max-w-[150px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
+                            inputMode="decimal"
+                          />
+                        ) : (
+                          formatMilesEs(row.cantidadInicial, 4)
+                        )}
+                      </td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">
+                        {editAudit ? (
+                          <input
+                            value={tx.pa}
+                            disabled={saving}
+                            onChange={(e) => patchTx({ pa: e.target.value })}
+                            onBlur={() => void saveField('pa')}
+                            className="mx-auto w-full max-w-[150px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
+                            inputMode="decimal"
+                          />
+                        ) : (
+                          formatMilesEs(row.promedioAnterior, 6)
+                        )}
+                      </td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.cantidadFinal, 4)}</td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">
+                        {editAudit ? (
+                          <input
+                            value={tx.pch}
+                            disabled={saving}
+                            onChange={(e) => patchTx({ pch: e.target.value })}
+                            onBlur={() => void saveField('pch')}
+                            className="mx-auto w-full max-w-[150px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
+                            inputMode="decimal"
+                          />
+                        ) : (
+                          formatMilesEs(row.promedioCompraHoy, 6)
+                        )}
+                      </td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums">
+                        {row.promedioVentaHoy > 1e-12 ? formatMilesEs(row.promedioVentaHoy, 6) : formatMilesEs(0, 6)}
+                      </td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums text-slate-800">
+                        {formatMilesEs(row.deltaVentaMenosCompraHoy, 6)}
+                      </td>
+                      <td className="px-1.5 py-1.5 font-mono tabular-nums font-semibold text-slate-900">
+                        {editAudit ? (
+                          <input
+                            value={tx.g}
+                            disabled={saving}
+                            title="Vacío = cálculo automático por promedios. Valor = ganancia COP fija para esta moneda."
+                            placeholder="Auto"
+                            onChange={(e) => patchTx({ g: e.target.value })}
+                            onBlur={() => void saveField('g')}
+                            className="mx-auto w-full max-w-[130px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
+                            inputMode="decimal"
+                          />
+                        ) : (
+                          <span className="inline-flex flex-col items-center gap-0.5">
+                            <span>
+                              {Math.abs(row.gananciaCop) < 1e-6 ? formatMilesEs(0, 0) : formatCOP(row.gananciaCop)}
+                            </span>
+                            {ov.ganancia_cop != null ? (
+                              <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Manual</span>
+                            ) : null}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
                   )
                 })}
               </tbody>

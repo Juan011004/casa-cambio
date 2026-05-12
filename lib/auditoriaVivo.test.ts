@@ -21,6 +21,7 @@ describe('auditoriaVivo', () => {
     const overrides = new Map([['USD', { ganancia_cop: 99_999 }]])
     const filas = filasAuditoriaVivo(txs, prev, ['USD'], overrides)
     expect(filas[0]?.gananciaCop).toBe(99_999)
+    expect(filas[0]?.deltaVentaMenosCompraHoy).toBeCloseTo(4200 - 4000, 4)
     const lista = gananciaListaDesdeAuditoria(txs, [], prev, overrides)
     expect(lista).toEqual([{ codigo: 'USD', valor: 99_999 }])
   })
