@@ -37,3 +37,27 @@ export function sumGananciaHistoricaHastaFecha(
   }
   return s
 }
+
+/**
+ * Acumulado por día hasta `fechaFin`: parte de cierres por moneda y, si existe,
+ * `balances_diarios.ganancias_dia` (incluye ajustes manuales vía `ganancia_dia_override`).
+ */
+export function sumGananciaAcumuladaCombinada(
+  cierresRows: { fecha: string | unknown; ganancia_calculada: unknown }[],
+  balanceRows: { fecha: string | unknown; ganancias_dia: unknown }[],
+  fechaFinYYYYMMDD: string
+): number {
+  const byDate = sumGananciaPorDia(cierresRows)
+  for (const r of balanceRows) {
+    const d = String(r.fecha).slice(0, 10)
+    if (d > fechaFinYYYYMMDD) continue
+    const g = Number(r.ganancias_dia ?? 0)
+    if (!Number.isFinite(g)) continue
+    byDate.set(d, g)
+  }
+  let s = 0
+  for (const [d, v] of Array.from(byDate.entries())) {
+    if (d <= fechaFinYYYYMMDD) s += v
+  }
+  return s
+}

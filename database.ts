@@ -334,6 +334,42 @@ export interface Database {
         }
         Relationships: []
       }
+      ganancia_dia_override: {
+        Row: {
+          usuario_id: string
+          fecha: string
+          ganancia_cop: number
+          updated_at: string
+        }
+        Insert: {
+          usuario_id: string
+          fecha: string
+          ganancia_cop: number
+          updated_at?: string
+        }
+        Update: {
+          ganancia_cop?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ganancia_acumulada_inicial: {
+        Row: {
+          usuario_id: string
+          monto_cop: number
+          updated_at: string
+        }
+        Insert: {
+          usuario_id: string
+          monto_cop: number
+          updated_at?: string
+        }
+        Update: {
+          monto_cop?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       pagos_deudas: {
         Row: {
           id: string

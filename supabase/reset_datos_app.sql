@@ -26,6 +26,10 @@ BEGIN
 
   DELETE FROM public.inventario       WHERE usuario_id = v_user;
 
+  DELETE FROM public.auditoria_overrides     WHERE usuario_id = v_user;
+  DELETE FROM public.ganancia_dia_override     WHERE usuario_id = v_user;
+  DELETE FROM public.ganancia_acumulada_inicial WHERE usuario_id = v_user;
+
   -- Normalmente TRM se conserva (histórico/operación). Si quieres resetearla para tu usuario,
   -- descomenta si tu tabla tiene usuario_id (si NO tiene, no lo borres).
   -- DELETE FROM public.trm_mercado WHERE usuario_id = v_user;
@@ -48,7 +52,10 @@ END $$;
 --   public.caja_precios,
 --   public.cierres_diarios,
 --   public.balances_diarios,
---   public.inventario
+--   public.inventario,
+--   public.auditoria_overrides,
+--   public.ganancia_dia_override,
+--   public.ganancia_acumulada_inicial
 -- RESTART IDENTITY CASCADE;
 -- COMMIT;
 

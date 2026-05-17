@@ -94,6 +94,7 @@ export async function computeBalanceDiarioUpsert(
     cPrevRes,
     invRes,
     ovRes,
+    ganDiaOvRes,
   ] = await Promise.all([
     supabase.from('trm_mercado').select('codigo,valor_cop'),
     supabase
@@ -145,6 +146,12 @@ export async function computeBalanceDiarioUpsert(
       .select('moneda,cantidad_inicial,promedio_anterior,promedio_compra_hoy,ganancia_cop')
       .eq('usuario_id', userId)
       .eq('fecha', fecha),
+    supabase
+      .from('ganancia_dia_override')
+      .select('ganancia_cop')
+      .eq('usuario_id', userId)
+      .eq('fecha', fecha)
+      .maybeSingle(),
   ])
 
   const copMap = rowsToCopMap((trmRes.data ?? []) as { codigo: string; valor_cop: number }[])
@@ -216,8 +223,22 @@ export async function computeBalanceDiarioUpsert(
     })
   }
 
-  const gananciaLista = gananciaListaDesdeAuditoria(txs, invForAudit, ultimoCierrePorMoneda, ovMap)
-  const gananciasDia = gananciaLista.reduce((s, x) => s + x.valor, 0)
+  const gananciaListaAuto = gananciaListaDesdeAuditoria(txs, invForAudit, ultimoCierrePorMoneda, ovMap)
+  const gananciaAutoSum = gananciaListaAuto.reduce((s, x) => s + x.valor, 0)
+
+  const ganDiaOvRow = ganDiaOvRes.error ? null : ganDiaOvRes.data
+  const gananciaDiaOverride =
+    ganDiaOvRow != null && (ganDiaOvRow as { ganancia_cop?: unknown }).ganancia_cop != null
+      ? Number((ganDiaOvRow as { ganancia_cop: unknown }).ganancia_cop)
+      : null
+
+  const usaOverrideGananciaDia =
+    gananciaDiaOverride != null && Number.isFinite(gananciaDiaOverride)
+
+  const gananciaLista = usaOverrideGananciaDia
+    ? [{ codigo: 'TOTAL', valor: q6(gananciaDiaOverride!) }]
+    : gananciaListaAuto
+  const gananciasDia = usaOverrideGananciaDia ? q6(gananciaDiaOverride!) : gananciaAutoSum
 
   const comprasLista = sumTxMontoDivisa(txs, 'COMPRA')
   const ventasLista = sumTxMontoDivisa(txs, 'VENTA')
@@ -303,6 +324,8 @@ export async function computeBalanceDiarioUpsert(
       valor_cop: x.valor,
       valor_cop_fmt: formatCOP(x.valor),
     })),
+    ganancia_dia_override: usaOverrideGananciaDia,
+    ganancia_dia_auto_cop: usaOverrideGananciaDia ? gananciaAutoSum : undefined,
     ganancia_dia_total_fmt: formatCOP(gananciasDia),
     gastos_dia_fmt: formatCOP(gastosDiaCop),
     caja_total_cop_fmt: formatCOP(sumCajaCop),

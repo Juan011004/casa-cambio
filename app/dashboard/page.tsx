@@ -1,11 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Download, Save } from 'lucide-react'
+import { CalendarRange, Download, Loader2, Save } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
-import { dayBoundsLocal, formatCOP, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
-import { sumGananciaHistoricaHastaFecha, sumGananciaHistoricaTotal } from '@/lib/gananciaCierres'
+import { addDaysYYYYMMDD, dayBoundsLocal, formatCOP, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
+import { sumGananciaAcumuladaCombinada } from '@/lib/gananciaCierres'
 import { saldoDeudasNetoCop, totalDeudasMontoCop } from '@/lib/balanceCop'
 import type { Database } from '@/database'
 import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '@/lib/ultimoCierre'
@@ -25,6 +25,11 @@ import type { CopPorUnidad } from '@/lib/trm'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { toast } from 'sonner'
 import { upsertAuditoriaOverride } from '@/app/actions/auditoriaOverrides'
+import { eliminarGananciaDiaOverride, upsertGananciaDiaOverride } from '@/app/actions/gananciaDiaOverride'
+import {
+  eliminarGananciaAcumuladaInicial,
+  upsertGananciaAcumuladaInicial,
+} from '@/app/actions/gananciaAcumuladaInicial'
 
 type BalanceSnapRow = Database['public']['Tables']['balances_diarios']['Row']
 
@@ -132,18 +137,34 @@ function TarjetaResumenCop({
   valorCop,
   loading: ld,
   bar,
+  hint,
+  onAjustar,
 }: {
   titulo: string
   valorCop: number
   loading: boolean
   bar: string
+  hint?: string
+  onAjustar?: () => void
 }) {
   return (
     <div
       className={`overflow-hidden rounded-xl border border-slate-200/90 bg-gradient-to-br from-white via-slate-50/40 to-slate-100/60 shadow-md ring-1 ring-slate-200/50 ${bar} border-l-[4px]`}
     >
       <div className="min-h-[4.75rem] px-3 py-2.5 pl-3.5">
-        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">{titulo}</h2>
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">{titulo}</h2>
+          {onAjustar ? (
+            <button
+              type="button"
+              onClick={onAjustar}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-700 hover:bg-slate-50"
+            >
+              Ajustar
+            </button>
+          ) : null}
+        </div>
+        {hint ? <p className="mt-0.5 text-[10px] font-semibold text-amber-800">{hint}</p> : null}
         <p className="mt-1 min-w-0 break-words text-pretty font-mono text-lg font-bold leading-snug tabular-nums text-slate-900 sm:text-xl">
           {ld ? '…' : formatCOP(valorCop)}
         </p>
@@ -159,6 +180,7 @@ function TarjetaCompacta({
   accent,
   totalCopFooter,
   totalFooterLabel,
+  hintTitulo,
 }: {
   titulo: string
   items: { codigo: string; valor: number }[]
@@ -167,6 +189,7 @@ function TarjetaCompacta({
   /** Si está definido (incluye 0), muestra pie con total en COP. */
   totalCopFooter?: number
   totalFooterLabel?: string
+  hintTitulo?: string
 }) {
   const bar =
     accent === 'emerald'
@@ -182,6 +205,9 @@ function TarjetaCompacta({
     >
       <div className="min-h-[5.75rem] px-3 py-2.5 pl-3.5">
         <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">{titulo}</h2>
+        {hintTitulo ? (
+          <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">{hintTitulo}</p>
+        ) : null}
         {!items.length ? (
           <p className="mt-2 text-base text-slate-400">—</p>
         ) : (
@@ -238,11 +264,19 @@ export default function DashboardPage() {
   const [cajaTotalCop, setCajaTotalCop] = useState(0)
   const [gastosDiaCop, setGastosDiaCop] = useState(0)
   const [acumGananciasCop, setAcumGananciasCop] = useState(0)
+  const [gananciaAcumInicialCop, setGananciaAcumInicialCop] = useState(0)
   const [acumGastosCop, setAcumGastosCop] = useState(0)
   const [auditOverrides, setAuditOverrides] = useState<Map<string, AuditoriaOverrideVals>>(() => new Map())
   const [editAudit, setEditAudit] = useState(false)
   const [savingAudit, setSavingAudit] = useState<Record<string, boolean>>({})
   const [auditFieldText, setAuditFieldText] = useState<Record<string, AuditFieldTextRow>>({})
+  /** Ganancia total COP del día operativa forzada manualmente (tabla `ganancia_dia_override`). */
+  const [gananciaDiaOverrideCop, setGananciaDiaOverrideCop] = useState<number | null>(null)
+  const [dialogGanDiaOpen, setDialogGanDiaOpen] = useState(false)
+  const [dialogGanFecha, setDialogGanFecha] = useState('')
+  const [dialogGanMonto, setDialogGanMonto] = useState('')
+  const [dialogAcumInicialMonto, setDialogAcumInicialMonto] = useState('')
+  const [dialogGanGuardando, setDialogGanGuardando] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -268,6 +302,7 @@ export default function DashboardPage() {
       setSnapshotMode(false)
       setSinBackupHistorico(false)
       setPrevDeboTenerCop(null)
+      setGananciaDiaOverrideCop(null)
       setLoading(false)
       return
     }
@@ -324,6 +359,16 @@ export default function DashboardPage() {
       .limit(1)
       .maybeSingle()
     let cierresAcumQ = supabase.from('cierres_diarios').select('fecha,ganancia_calculada').eq('usuario_id', user.id)
+    let balancesAcumQ = supabase
+      .from('balances_diarios')
+      .select('fecha,ganancias_dia')
+      .eq('usuario_id', user.id)
+      .lte('fecha', fechaDia)
+    let acumInicialQ = supabase
+      .from('ganancia_acumulada_inicial')
+      .select('monto_cop')
+      .eq('usuario_id', user.id)
+      .maybeSingle()
     let gastosAcumQ = supabase.from('gastos').select('monto_cop').eq('usuario_id', user.id).lt('fecha', finAcumExclusive)
 
     debenQ = debenQ.eq('usuario_id', user.id)
@@ -340,21 +385,46 @@ export default function DashboardPage() {
       .eq('usuario_id', user.id)
       .eq('fecha', fechaDia)
 
-    const [txRes, ndRes, dbRes, cPrevRes, invRes, cierreRes, preciosRes, gastRes, prevBalRes, acumGanRes, acumGastRes, ovRes] =
-      await Promise.all([
-        txQuery,
-        debenQ,
-        deboQ,
-        cierresPrevQ,
-        invQ,
-        cajaCierreQ,
-        cajaPreciosQ,
-        gastosQ,
-        prevBalQ,
-        cierresAcumQ,
-        gastosAcumQ,
-        ovQ,
-      ])
+    const ganDiaOvQ = supabase
+      .from('ganancia_dia_override')
+      .select('ganancia_cop')
+      .eq('usuario_id', user.id)
+      .eq('fecha', fechaDia)
+      .maybeSingle()
+
+    const [
+      txRes,
+      ndRes,
+      dbRes,
+      cPrevRes,
+      invRes,
+      cierreRes,
+      preciosRes,
+      gastRes,
+      prevBalRes,
+      acumGanRes,
+      balancesAcumRes,
+      acumInicialRes,
+      acumGastRes,
+      ovRes,
+      ganOvRes,
+    ] = await Promise.all([
+      txQuery,
+      debenQ,
+      deboQ,
+      cierresPrevQ,
+      invQ,
+      cajaCierreQ,
+      cajaPreciosQ,
+      gastosQ,
+      prevBalQ,
+      cierresAcumQ,
+      balancesAcumQ,
+      acumInicialQ,
+      gastosAcumQ,
+      ovQ,
+      ganDiaOvQ,
+    ])
 
     setTxRows((txRes.data ?? []) as Transaccion[])
     const foldLatestDeudas = (rows: unknown[]) => {
@@ -417,14 +487,21 @@ export default function DashboardPage() {
       prevMonthKey === monthKey && prevTotal != null && Number.isFinite(Number(prevTotal)) ? Number(prevTotal) : null
     )
 
-    setAcumGananciasCop(
-      acumGanRes.error
+    const acumInicial =
+      acumInicialRes.error || !acumInicialRes.data
         ? 0
-        : sumGananciaHistoricaHastaFecha(
-            (acumGanRes.data ?? []) as { fecha: string; ganancia_calculada: unknown }[],
-            fechaDia
-          )
-    )
+        : Number((acumInicialRes.data as { monto_cop?: unknown }).monto_cop ?? 0)
+    const acumInicialOk = Number.isFinite(acumInicial) ? acumInicial : 0
+    setGananciaAcumInicialCop(acumInicialOk)
+
+    const ganEnApp = acumGanRes.error
+      ? 0
+      : sumGananciaAcumuladaCombinada(
+          (acumGanRes.data ?? []) as { fecha: string; ganancia_calculada: unknown }[],
+          balancesAcumRes.error ? [] : ((balancesAcumRes.data ?? []) as { fecha: string; ganancias_dia: unknown }[]),
+          fechaDia
+        )
+    setAcumGananciasCop(acumInicialOk + ganEnApp)
     setAcumGastosCop(
       acumGastRes.error
         ? 0
@@ -443,12 +520,56 @@ export default function DashboardPage() {
       })
     }
     setAuditOverrides(ovMap)
+
+    const gOvRow = ganOvRes.error ? null : ganOvRes.data
+    const gOv = gOvRow != null && (gOvRow as { ganancia_cop?: unknown }).ganancia_cop != null ? Number((gOvRow as any).ganancia_cop) : null
+    setGananciaDiaOverrideCop(gOv != null && Number.isFinite(gOv) ? gOv : null)
+
     setLoading(false)
   }, [supabase, fechaDia])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  const abrirDialogAjusteGanancias = useCallback(
+    (fechaInicial?: string) => {
+      const f = fechaInicial ?? addDaysYYYYMMDD(fechaDia, -1)
+      setDialogGanFecha(f)
+      setDialogGanMonto('')
+      setDialogAcumInicialMonto(
+        Math.abs(gananciaAcumInicialCop) > 1e-6 ? formatMilesEs(gananciaAcumInicialCop, 2) : ''
+      )
+      setDialogGanDiaOpen(true)
+    },
+    [fechaDia, gananciaAcumInicialCop]
+  )
+
+  useEffect(() => {
+    if (!dialogGanDiaOpen || !/^\d{4}-\d{2}-\d{2}$/.test(dialogGanFecha)) return
+    let cancelled = false
+    void (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user?.id || cancelled) return
+      const { data } = await supabase
+        .from('ganancia_dia_override')
+        .select('ganancia_cop')
+        .eq('usuario_id', user.id)
+        .eq('fecha', dialogGanFecha)
+        .maybeSingle()
+      if (cancelled) return
+      const g =
+        data != null && (data as { ganancia_cop?: unknown }).ganancia_cop != null
+          ? Number((data as { ganancia_cop: unknown }).ganancia_cop)
+          : null
+      setDialogGanMonto(g != null && Number.isFinite(g) ? formatMilesEs(g, 2) : '')
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [dialogGanDiaOpen, dialogGanFecha, supabase])
 
   useEffect(() => {
     let active = true
@@ -479,6 +600,16 @@ export default function DashboardPage() {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'auditoria_overrides', filter: `usuario_id=eq.${user.id}` },
+          () => void load()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'ganancia_dia_override', filter: `usuario_id=eq.${user.id}` },
+          () => void load()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'ganancia_acumulada_inicial', filter: `usuario_id=eq.${user.id}` },
           () => void load()
         )
         .subscribe()
@@ -530,8 +661,11 @@ export default function DashboardPage() {
       const g = dt.ganancia ?? []
       return g.map((x) => ({ codigo: x.codigo, valor: Number(x.valor_cop) }))
     }
+    if (gananciaDiaOverrideCop != null && Number.isFinite(gananciaDiaOverrideCop)) {
+      return [{ codigo: 'TOTAL', valor: gananciaDiaOverrideCop }]
+    }
     return gananciaListaDesdeAuditoria(txRows, invRows, ultimoCierrePorMoneda, auditOverrides)
-  }, [snapshotMode, balanceSnap, txRows, invRows, ultimoCierrePorMoneda, auditOverrides])
+  }, [snapshotMode, balanceSnap, txRows, invRows, ultimoCierrePorMoneda, auditOverrides, gananciaDiaOverrideCop])
 
   const totalGananciaDiaCop = useMemo(() => {
     if (snapshotMode && balanceSnap) return Number(balanceSnap.ganancias_dia)
@@ -663,6 +797,11 @@ export default function DashboardPage() {
           items={loading ? [] : gananciaLista}
           decItems={0}
           accent="emerald"
+          hintTitulo={
+            !snapshotMode && gananciaDiaOverrideCop != null && Number.isFinite(gananciaDiaOverrideCop)
+              ? 'Total del día ajustado'
+              : undefined
+          }
           totalCopFooter={loading ? undefined : totalGananciaDiaCop}
           totalFooterLabel="Total ganancia (COP)"
         />
@@ -682,12 +821,37 @@ export default function DashboardPage() {
         />
       </div>
 
+      <div className="flex flex-col gap-2 rounded-xl border border-slate-200/80 bg-slate-50/90 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs leading-snug text-slate-600">
+          Use esto si ya va avanzado el mes y necesita corregir la <span className="font-semibold">ganancia total COP</span>{' '}
+          de un día pasado (p. ej. ayer): se guarda en base y se <span className="font-semibold">recalculan los balances desde esa fecha</span>, para que el
+          &quot;Debo tener&quot; encaje con la cadena real.
+        </p>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={balanceLoading}
+            onClick={() => abrirDialogAjusteGanancias()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            <CalendarRange className="h-4 w-4 shrink-0" aria-hidden />
+            Ajustar ganancia / arranque
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <TarjetaResumenCop
           titulo="Acumulado ganancias"
           valorCop={acumGananciasCop}
           loading={loading}
           bar="border-l-sky-600"
+          hint={
+            Math.abs(gananciaAcumInicialCop) > 1e-6
+              ? `Incluye ${formatCOP(gananciaAcumInicialCop)} de arranque`
+              : undefined
+          }
+          onAjustar={() => abrirDialogAjusteGanancias()}
         />
         <TarjetaResumenCop
           titulo="Acumulado gastos"
@@ -929,6 +1093,197 @@ export default function DashboardPage() {
           Historial
         </a>
       </p>
+
+      {dialogGanDiaOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="presentation"
+          onClick={() => {
+            if (!dialogGanGuardando) setDialogGanDiaOpen(false)
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gan-dia-titulo"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="gan-dia-titulo" className="text-base font-bold text-slate-900">
+              Ganancia por día y acumulado de arranque
+            </h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Fecha máxima: {fechaDia}. Al guardar un día pasado se recalcula la cadena de &quot;Debo tener&quot; desde esa fecha. El acumulado de arranque es lo que ya llevaban antes de registrar días en la app.
+            </p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label htmlFor="gan-dia-fecha" className="mb-1 block text-xs font-semibold text-slate-600">
+                  Día a ajustar
+                </label>
+                <input
+                  id="gan-dia-fecha"
+                  type="date"
+                  max={fechaDia}
+                  value={dialogGanFecha}
+                  onChange={(e) => setDialogGanFecha(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label htmlFor="gan-dia-monto" className="mb-1 block text-xs font-semibold text-slate-600">
+                  Ganancia total del día (COP)
+                </label>
+                <input
+                  id="gan-dia-monto"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ej. 850000 o 850.000,50"
+                  value={dialogGanMonto}
+                  onChange={(e) => setDialogGanMonto(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
+                />
+              </div>
+              <div className="border-t border-slate-200 pt-3">
+                <label htmlFor="gan-acum-inicial" className="mb-1 block text-xs font-semibold text-slate-600">
+                  Acumulado de arranque (COP)
+                </label>
+                <p className="mb-1 text-[11px] text-slate-500">
+                  Suma al total de la tarjeta &quot;Acumulado ganancias&quot; (ganancias previas al sistema).
+                </p>
+                <input
+                  id="gan-acum-inicial"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ej. 12500000"
+                  value={dialogAcumInicialMonto}
+                  onChange={(e) => setDialogAcumInicialMonto(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
+                />
+              </div>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={dialogGanGuardando}
+                onClick={() => void (async () => {
+                  if (!/^\d{4}-\d{2}-\d{2}$/.test(dialogGanFecha)) {
+                    toast.error('Elija una fecha válida.')
+                    return
+                  }
+                  if (dialogGanFecha > fechaDia) {
+                    toast.error('La fecha no puede ser posterior a la fecha operativa actual.')
+                    return
+                  }
+                  const n = parseFlexibleNumber(dialogGanMonto)
+                  if (!dialogGanMonto.trim() || !Number.isFinite(n)) {
+                    toast.error('Indique un monto COP válido.')
+                    return
+                  }
+                  setDialogGanGuardando(true)
+                  try {
+                    const res = await upsertGananciaDiaOverride({ fecha: dialogGanFecha, ganancia_cop: n })
+                    if (!res.ok) {
+                      toast.error(res.error)
+                      return
+                    }
+                    toast.success('Ajuste guardado. Balances actualizados desde esa fecha.')
+                    setDialogGanDiaOpen(false)
+                    await load()
+                  } finally {
+                    setDialogGanGuardando(false)
+                  }
+                })()}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 sm:flex-none"
+              >
+                {dialogGanGuardando ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                Guardar ganancia del día
+              </button>
+              <button
+                type="button"
+                disabled={dialogGanGuardando}
+                onClick={() => void (async () => {
+                  const n = parseFlexibleNumber(dialogAcumInicialMonto)
+                  if (!dialogAcumInicialMonto.trim() || !Number.isFinite(n)) {
+                    toast.error('Indique un acumulado de arranque válido.')
+                    return
+                  }
+                  setDialogGanGuardando(true)
+                  try {
+                    const res = await upsertGananciaAcumuladaInicial({ monto_cop: n })
+                    if (!res.ok) {
+                      toast.error(res.error)
+                      return
+                    }
+                    toast.success('Acumulado de arranque guardado.')
+                    await load()
+                  } finally {
+                    setDialogGanGuardando(false)
+                  }
+                })()}
+                className="rounded-lg border border-emerald-600 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+              >
+                Guardar arranque
+              </button>
+              <button
+                type="button"
+                disabled={dialogGanGuardando}
+                onClick={() => void (async () => {
+                  setDialogGanGuardando(true)
+                  try {
+                    const res = await eliminarGananciaAcumuladaInicial()
+                    if (!res.ok) {
+                      toast.error(res.error)
+                      return
+                    }
+                    toast.success('Acumulado de arranque eliminado.')
+                    setDialogAcumInicialMonto('')
+                    await load()
+                  } finally {
+                    setDialogGanGuardando(false)
+                  }
+                })()}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Quitar arranque
+              </button>
+              <button
+                type="button"
+                disabled={dialogGanGuardando}
+                onClick={() => void (async () => {
+                  if (!/^\d{4}-\d{2}-\d{2}$/.test(dialogGanFecha)) {
+                    toast.error('Elija una fecha válida.')
+                    return
+                  }
+                  setDialogGanGuardando(true)
+                  try {
+                    const res = await eliminarGananciaDiaOverride({ fecha: dialogGanFecha })
+                    if (!res.ok) {
+                      toast.error(res.error)
+                      return
+                    }
+                    toast.success('Ajuste eliminado. Recalculado con movimientos del día.')
+                    setDialogGanDiaOpen(false)
+                    await load()
+                  } finally {
+                    setDialogGanGuardando(false)
+                  }
+                })()}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Quitar ajuste de ese día
+              </button>
+              <button
+                type="button"
+                disabled={dialogGanGuardando}
+                onClick={() => setDialogGanDiaOpen(false)}
+                className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   )
 }
