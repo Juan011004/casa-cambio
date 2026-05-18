@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ModalAuditoriaCaja } from '@/components/auditoria/ModalAuditoriaCaja'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
@@ -15,6 +16,7 @@ import { errorMessage } from '@/lib/errorMessage'
 import type { Transaccion } from '@/types/database'
 import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '@/lib/ultimoCierre'
 import { upsertCajaPrecios } from '@/app/actions/cajaPrecios'
+import { buildPreciosCompraIniciales } from '@/lib/cajaPreciosInit'
 
 const FLAGS: Record<string, string> = {
   USD: '🇺🇸',
@@ -50,14 +52,13 @@ export default function CajaPage() {
   const [cierreMap, setCierreMap] = useState<Record<string, number>>({})
   const [montosManualCierre, setMontosManualCierre] = useState<Record<string, string>>({})
   const [preciosCompra, setPreciosCompra] = useState<Record<string, string>>({})
-  const [editPrecios, setEditPrecios] = useState(false)
-  const [guardandoPrecios, setGuardandoPrecios] = useState(false)
+  const preciosModificadosRef = useRef(false)
   const [comprasDia, setComprasDia] = useState<Record<string, number>>({})
   const [ventasDia, setVentasDia] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [finalizando, setFinalizando] = useState(false)
+  const [guardando, setGuardando] = useState(false)
+  const [modalAuditOpen, setModalAuditOpen] = useState(false)
   const [cierreAyerPorMoneda, setCierreAyerPorMoneda] = useState<Record<string, number>>({})
-  const [precioAyerUsdEur, setPrecioAyerUsdEur] = useState<Record<string, number>>({})
 
   const cargar = useCallback(async () => {
     setLoading(true)
@@ -86,7 +87,6 @@ export default function CajaPage() {
         .select('moneda,cierre_manual,fecha,promedio_compra,promedio_compra_acumulado,id,created_at')
         .eq('usuario_id', user.id)
         .lt('fecha', fecha),
-      // Para monedas “estables”: traer el último precio <= fecha (copiar hacia adelante).
       supabase
         .from('caja_precios')
         .select('moneda,precio_compra,fecha,ultima_modificacion')
@@ -108,40 +108,35 @@ export default function CajaPage() {
     setVentasDia(sumTxByMoneda(txs, 'VENTA'))
 
     const ayer: Record<string, number> = {}
-    const preciosAyer: Record<string, number> = {}
+    const cierresPrev = (cierresPrevRes.error ? [] : cierresPrevRes.data ?? []) as CierreRowParaArrastre[]
     if (!cierresPrevRes.error) {
-      const fold = saldoPromedioPorMonedaDesdeCierres((cierresPrevRes.data ?? []) as CierreRowParaArrastre[])
+      const fold = saldoPromedioPorMonedaDesdeCierres(cierresPrev)
       for (const [mon, v] of Array.from(fold.entries())) {
         ayer[mon] = v.saldoAnterior
-        // usar el costo promedio anterior como "precio compra" por defecto (igual que Dashboard)
-        preciosAyer[mon] = Number(v.promedioAnterior ?? 0)
       }
-
     }
     setCierreAyerPorMoneda(ayer)
-    setPrecioAyerUsdEur(preciosAyer)
 
-    const nextPrecios: Record<string, string> = {}
-    const preciosRows = (preciosRes.error ? [] : preciosRes.data ?? []) as {
-      moneda: string
-      precio_compra: number
-      fecha: string
-    }[]
-    const pm = new Map<string, number>()
-    for (const r of preciosRows) {
-      const mon = String(r.moneda).toUpperCase()
-      // Como viene ordenado DESC, el primer match por moneda es el último precio vigente.
-      if (!pm.has(mon)) pm.set(mon, Number(r.precio_compra))
+    if (!preciosModificadosRef.current) {
+      const iniciales = buildPreciosCompraIniciales({
+        fecha,
+        divisasCodigos: divisas.map((d) => d.codigo),
+        preciosRows: (preciosRes.error ? [] : preciosRes.data ?? []) as {
+          moneda: string
+          precio_compra: number
+          fecha: string
+        }[],
+        txs,
+        cierresPrev,
+      })
+      const nextPrecios: Record<string, string> = {}
+      for (const d of divisas) {
+        const mon = d.codigo
+        const v = iniciales[mon]
+        nextPrecios[mon] = v != null && v > 0 ? formatMilesEs(v, 2) : ''
+      }
+      setPreciosCompra(nextPrecios)
     }
-    for (const d of divisas) {
-      const mon = d.codigo
-      const saved = pm.get(mon)
-      const fallbackBase = (preciosAyer.USD ?? 0) > 0 ? Number(preciosAyer.USD) : (preciosAyer.EUR ?? 0) > 0 ? Number(preciosAyer.EUR) : 0
-      const fallback = (preciosAyer[mon] ?? 0) > 0 ? Number(preciosAyer[mon]) : fallbackBase
-      const v = saved != null && Number.isFinite(saved) && saved > 0 ? saved : fallback
-      nextPrecios[mon] = v > 0 ? formatMilesEs(v, 4) : ''
-    }
-    setPreciosCompra(nextPrecios)
 
     setLoading(false)
   }, [supabase, fecha, divisas])
@@ -149,6 +144,10 @@ export default function CajaPage() {
   useEffect(() => {
     void cargar()
   }, [cargar])
+
+  useEffect(() => {
+    preciosModificadosRef.current = false
+  }, [fecha])
 
   useEffect(() => {
     let active = true
@@ -164,7 +163,9 @@ export default function CajaPage() {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'transacciones', filter: `usuario_id=eq.${user.id}` },
-          () => void cargar()
+          () => {
+            if (!preciosModificadosRef.current) void cargar()
+          }
         )
         .on(
           'postgres_changes',
@@ -173,13 +174,17 @@ export default function CajaPage() {
         )
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'caja_precios', filter: `usuario_id=eq.${user.id}` },
-          () => void cargar()
+          { event: '*', schema: 'public', table: 'cierres_diarios', filter: `usuario_id=eq.${user.id}` },
+          () => {
+            if (!preciosModificadosRef.current) void cargar()
+          }
         )
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'cierres_diarios', filter: `usuario_id=eq.${user.id}` },
-          () => void cargar()
+          { event: '*', schema: 'public', table: 'caja_precios', filter: `usuario_id=eq.${user.id}` },
+          () => {
+            if (!preciosModificadosRef.current) void cargar()
+          }
         )
         .subscribe()
     })()
@@ -221,9 +226,28 @@ export default function CajaPage() {
     })
   }, [codigos, cierreAyerPorMoneda, comprasDia, ventasDia, montosManualCierre])
 
-  const onFinalizarCierre = async () => {
-    setFinalizando(true)
+  const recolectarPrecios = () => {
+    const out: Record<string, number> = {}
+    for (const d of divisas) {
+      const raw = preciosCompra[d.codigo] ?? ''
+      const n = parseFlexibleNumber(raw)
+      if (raw.trim() !== '' && Number.isFinite(n) && n >= 0) out[d.codigo] = n
+    }
+    return out
+  }
+
+  const onGuardar = async () => {
+    setGuardando(true)
     try {
+      const precios = recolectarPrecios()
+      if (Object.keys(precios).length > 0) {
+        const resP = await upsertCajaPrecios({ fecha, precios })
+        if (!resP.ok) {
+          toast.error(resP.error)
+          return
+        }
+      }
+
       const manualCierre: Record<string, number> = {}
       for (const row of filas) {
         const rawM = montosManualCierre[row.codigo] ?? ''
@@ -235,36 +259,13 @@ export default function CajaPage() {
         toast.error(res.error)
         return
       }
-      toast.success(Object.keys(manualCierre).length > 0 ? 'Cierre guardado' : 'Actualizado')
+      toast.success('Guardado')
+      preciosModificadosRef.current = false
       await cargar()
     } catch (e: unknown) {
       toast.error(errorMessage(e))
     } finally {
-      setFinalizando(false)
-    }
-  }
-
-  const onGuardarPrecios = async () => {
-    setGuardandoPrecios(true)
-    try {
-      const out: Record<string, number> = {}
-      for (const d of divisas) {
-        const raw = preciosCompra[d.codigo] ?? ''
-        const n = parseFlexibleNumber(raw)
-        if (raw.trim() !== '' && Number.isFinite(n) && n >= 0) out[d.codigo] = n
-      }
-      const res = await upsertCajaPrecios({ fecha, precios: out })
-      if (!res.ok) {
-        toast.error(res.error)
-        return
-      }
-      toast.success('Precios guardados')
-      setEditPrecios(false)
-      await cargar()
-    } catch (e: unknown) {
-      toast.error(errorMessage(e))
-    } finally {
-      setGuardandoPrecios(false)
+      setGuardando(false)
     }
   }
 
@@ -286,7 +287,7 @@ export default function CajaPage() {
     <div className="mx-auto max-w-4xl space-y-4 text-base text-black">
       {esHistorico ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Editando fecha pasada: <span className="font-mono font-semibold">{fecha}</span>
+          Fecha: <span className="font-mono font-semibold">{fecha}</span>
         </p>
       ) : null}
 
@@ -295,25 +296,6 @@ export default function CajaPage() {
           <p className="p-6 text-center text-base text-slate-500">…</p>
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-200 px-3 py-2">
-              <button
-                type="button"
-                onClick={() => setEditPrecios((v) => !v)}
-                className="btn-secondary min-h-[44px] text-sm"
-              >
-                {editPrecios ? 'Bloquear precios' : 'Editar precios'}
-              </button>
-              {editPrecios ? (
-                <button
-                  type="button"
-                  disabled={guardandoPrecios}
-                  onClick={() => void onGuardarPrecios()}
-                  className="btn-primary min-h-[44px] text-sm"
-                >
-                  {guardandoPrecios ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar precios'}
-                </button>
-              ) : null}
-            </div>
             <table className="w-full border-collapse text-center text-base">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100">
@@ -327,11 +309,7 @@ export default function CajaPage() {
               <tbody>
                 {filas.map((f) => {
                   const diffClass =
-                    f.diff == null
-                      ? 'text-slate-500'
-                      : f.diff >= 0
-                        ? 'text-blue-700'
-                        : 'text-red-700'
+                    f.diff == null ? 'text-slate-500' : f.diff >= 0 ? 'text-blue-700' : 'text-red-700'
                   return (
                     <tr key={f.codigo} className="border-b border-slate-100">
                       <td className="border-r border-slate-100 px-2 py-2 text-left align-middle">
@@ -346,7 +324,7 @@ export default function CajaPage() {
                         </span>
                       </td>
                       <td className="border-r border-slate-100 px-2 py-2 align-middle font-mono font-semibold tabular-nums">
-                        {formatMilesEs(f.estimado, 4)}
+                        {formatMilesEs(f.estimado, 2)}
                       </td>
                       <td className="border-r border-slate-100 px-2 py-1.5 align-middle">
                         <MoneyTextField
@@ -365,16 +343,18 @@ export default function CajaPage() {
                           id={`pc-${f.codigo}`}
                           label={`Precio compra ${f.codigo}`}
                           omitLabel
-                          maxFrac={4}
-                          disabled={!editPrecios}
+                          maxFrac={2}
                           value={preciosCompra[f.codigo] ?? ''}
-                          onChange={(v) => setPreciosCompra((prev) => ({ ...prev, [f.codigo]: v }))}
+                          onChange={(v) => {
+                            preciosModificadosRef.current = true
+                            setPreciosCompra((prev) => ({ ...prev, [f.codigo]: v }))
+                          }}
                           className="flex justify-center"
                           inputClassName={cellInput}
                         />
                       </td>
                       <td className={`px-2 py-2 align-middle font-mono font-bold tabular-nums ${diffClass}`}>
-                        {f.diff != null ? formatMilesEs(f.diff, 4) : '—'}
+                        {f.diff != null ? formatMilesEs(f.diff, 2) : '—'}
                       </td>
                     </tr>
                   )
@@ -385,19 +365,36 @@ export default function CajaPage() {
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Total caja (COP)</p>
               <p className="truncate font-mono text-lg font-bold tabular-nums text-slate-900">{formatMilesEs(totalCajaCop, 2)}</p>
             </div>
-            <div className="flex justify-center border-t border-slate-200 px-3 py-4">
+            <div className="flex flex-wrap items-center justify-center gap-3 border-t border-slate-200 px-3 py-4">
               <button
                 type="button"
-                disabled={finalizando}
-                onClick={() => void onFinalizarCierre()}
-                className="min-h-[52px] min-w-[220px] rounded-xl bg-gradient-to-b from-slate-800 to-slate-950 px-8 text-base font-bold text-white shadow-lg hover:from-slate-700 hover:to-slate-900 disabled:opacity-50"
+                onClick={() => setModalAuditOpen(true)}
+                className="min-h-[52px] rounded-xl border border-slate-300 bg-white px-6 text-base font-bold text-slate-800 shadow-sm hover:bg-slate-50"
               >
-                {finalizando ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Actualizar'}
+                Editar promedios / ganancia
+              </button>
+              <button
+                type="button"
+                disabled={guardando}
+                onClick={() => void onGuardar()}
+                className="min-h-[52px] min-w-[180px] rounded-xl bg-gradient-to-b from-slate-800 to-slate-950 px-8 text-base font-bold text-white shadow-lg hover:from-slate-700 hover:to-slate-900 disabled:opacity-50"
+              >
+                {guardando ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Guardar'}
               </button>
             </div>
           </>
         )}
       </div>
+
+      <ModalAuditoriaCaja
+        open={modalAuditOpen}
+        onClose={() => setModalAuditOpen(false)}
+        fecha={fecha}
+        onAfterSave={() => {
+          preciosModificadosRef.current = false
+          void cargar()
+        }}
+      />
     </div>
   )
 }

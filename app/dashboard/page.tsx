@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarRange, Download, Loader2, Save } from 'lucide-react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { CalendarRange, Download, Save } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
-import { addDaysYYYYMMDD, dayBoundsLocal, formatCOP, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
+import { dayBoundsLocal, formatCOP, formatMilesEs, fechaLocalYYYYMMDD } from '@/lib/utils'
 import { sumGananciaAcumuladaCombinada } from '@/lib/gananciaCierres'
 import { saldoDeudasNetoCop, totalDeudasMontoCop } from '@/lib/balanceCop'
 import type { Database } from '@/database'
@@ -22,14 +23,9 @@ import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import type { Transaccion } from '@/types/database'
 import type { CopPorUnidad } from '@/lib/trm'
-import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { toast } from 'sonner'
-import { upsertAuditoriaOverride } from '@/app/actions/auditoriaOverrides'
-import { eliminarGananciaDiaOverride, upsertGananciaDiaOverride } from '@/app/actions/gananciaDiaOverride'
-import {
-  eliminarGananciaAcumuladaInicial,
-  upsertGananciaAcumuladaInicial,
-} from '@/app/actions/gananciaAcumuladaInicial'
+import { AuditoriaVivoTable } from '@/components/auditoria/AuditoriaVivoTable'
+import { DialogAjusteGanancia } from '@/components/auditoria/DialogAjusteGanancia'
 
 type BalanceSnapRow = Database['public']['Tables']['balances_diarios']['Row']
 
@@ -85,27 +81,6 @@ function sumDeudasPendientes(rows: { divisa: string; monto: number }[]): { codig
     .filter(([, v]) => Math.abs(v) > 1e-10)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([codigo, valor]) => ({ codigo, valor }))
-}
-
-type AuditFieldTextRow = { ci: string; pa: string; pch: string; g: string }
-
-function buildAuditFieldText(
-  filas: ReturnType<typeof filasAuditoriaVivo>,
-  auditOverrides: Map<string, AuditoriaOverrideVals>
-): Record<string, AuditFieldTextRow> {
-  const out: Record<string, AuditFieldTextRow> = {}
-  for (const row of filas) {
-    const mon = row.moneda
-    const ov = auditOverrides.get(mon) ?? {}
-    const fmt = (n: number, max: number) => (Number.isFinite(n) ? formatMilesEs(n, max) : '')
-    out[mon] = {
-      ci: ov.cantidad_inicial != null ? fmt(ov.cantidad_inicial, 8) : fmt(row.cantidadInicial, 8),
-      pa: ov.promedio_anterior != null ? fmt(ov.promedio_anterior, 8) : fmt(row.promedioAnterior, 8),
-      pch: ov.promedio_compra_hoy != null ? fmt(ov.promedio_compra_hoy, 8) : fmt(row.promedioCompraHoy, 8),
-      g: ov.ganancia_cop != null ? fmt(ov.ganancia_cop, 2) : '',
-    }
-  }
-  return out
 }
 
 function TarjetaBalanceCop({
@@ -238,8 +213,9 @@ function TarjetaCompacta({
   )
 }
 
-export default function DashboardPage() {
+function DashboardPageInner() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), [])
+  const searchParams = useSearchParams()
   const { rows: divisasMaestro } = useDivisasMaestro()
   const { fecha: fechaDia } = useFechaOperativa()
   const monthKey = useMemo(() => String(fechaDia).slice(0, 7), [fechaDia])
@@ -268,15 +244,9 @@ export default function DashboardPage() {
   const [acumGastosCop, setAcumGastosCop] = useState(0)
   const [auditOverrides, setAuditOverrides] = useState<Map<string, AuditoriaOverrideVals>>(() => new Map())
   const [editAudit, setEditAudit] = useState(false)
-  const [savingAudit, setSavingAudit] = useState<Record<string, boolean>>({})
-  const [auditFieldText, setAuditFieldText] = useState<Record<string, AuditFieldTextRow>>({})
   /** Ganancia total COP del día operativa forzada manualmente (tabla `ganancia_dia_override`). */
   const [gananciaDiaOverrideCop, setGananciaDiaOverrideCop] = useState<number | null>(null)
   const [dialogGanDiaOpen, setDialogGanDiaOpen] = useState(false)
-  const [dialogGanFecha, setDialogGanFecha] = useState('')
-  const [dialogGanMonto, setDialogGanMonto] = useState('')
-  const [dialogAcumInicialMonto, setDialogAcumInicialMonto] = useState('')
-  const [dialogGanGuardando, setDialogGanGuardando] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -532,44 +502,13 @@ export default function DashboardPage() {
     void load()
   }, [load])
 
-  const abrirDialogAjusteGanancias = useCallback(
-    (fechaInicial?: string) => {
-      const f = fechaInicial ?? addDaysYYYYMMDD(fechaDia, -1)
-      setDialogGanFecha(f)
-      setDialogGanMonto('')
-      setDialogAcumInicialMonto(
-        Math.abs(gananciaAcumInicialCop) > 1e-6 ? formatMilesEs(gananciaAcumInicialCop, 2) : ''
-      )
-      setDialogGanDiaOpen(true)
-    },
-    [fechaDia, gananciaAcumInicialCop]
-  )
-
   useEffect(() => {
-    if (!dialogGanDiaOpen || !/^\d{4}-\d{2}-\d{2}$/.test(dialogGanFecha)) return
-    let cancelled = false
-    void (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user?.id || cancelled) return
-      const { data } = await supabase
-        .from('ganancia_dia_override')
-        .select('ganancia_cop')
-        .eq('usuario_id', user.id)
-        .eq('fecha', dialogGanFecha)
-        .maybeSingle()
-      if (cancelled) return
-      const g =
-        data != null && (data as { ganancia_cop?: unknown }).ganancia_cop != null
-          ? Number((data as { ganancia_cop: unknown }).ganancia_cop)
-          : null
-      setDialogGanMonto(g != null && Number.isFinite(g) ? formatMilesEs(g, 2) : '')
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [dialogGanDiaOpen, dialogGanFecha, supabase])
+    if (searchParams.get('editar') === '1') setEditAudit(true)
+  }, [searchParams])
+
+  const abrirDialogAjusteGanancias = useCallback(() => {
+    setDialogGanDiaOpen(true)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -721,15 +660,6 @@ export default function DashboardPage() {
     [txRows, ultimoCierrePorMoneda, monedasAudit, auditOverrides]
   )
 
-  useEffect(() => {
-    if (!editAudit) {
-      setAuditFieldText({})
-      return
-    }
-    if (loading) return
-    setAuditFieldText(buildAuditFieldText(filasAuditVivo, auditOverrides))
-  }, [editAudit, loading, filasAuditVivo, auditOverrides])
-
   const tengoCop = useMemo(() => {
     if (snapshotMode && balanceSnap) return Number(balanceSnap.tengo_total)
     return sumArqueoCop + saldoDeudasNetoCop(debenRows, deboRows, copMap)
@@ -774,9 +704,6 @@ export default function DashboardPage() {
     return m
   }, [trmFilas])
 
-  const auditFieldTextRef = useRef<Record<string, AuditFieldTextRow>>({})
-  auditFieldTextRef.current = auditFieldText
-
   const recientes = useMemo(() => txRows.slice(0, 10), [txRows])
 
   return (
@@ -819,25 +746,6 @@ export default function DashboardPage() {
           totalCopFooter={balanceLoading ? undefined : totalDeboCop}
           totalFooterLabel="Total en COP"
         />
-      </div>
-
-      <div className="flex flex-col gap-2 rounded-xl border border-slate-200/80 bg-slate-50/90 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs leading-snug text-slate-600">
-          Use esto si ya va avanzado el mes y necesita corregir la <span className="font-semibold">ganancia total COP</span>{' '}
-          de un día pasado (p. ej. ayer): se guarda en base y se <span className="font-semibold">recalculan los balances desde esa fecha</span>, para que el
-          &quot;Debo tener&quot; encaje con la cadena real.
-        </p>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={balanceLoading}
-            onClick={() => abrirDialogAjusteGanancias()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-          >
-            <CalendarRange className="h-4 w-4 shrink-0" aria-hidden />
-            Ajustar ganancia / arranque
-          </button>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -899,189 +807,50 @@ export default function DashboardPage() {
       </section>
 
       <section className="mx-auto max-w-5xl overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-lg ring-1 ring-slate-200/40">
-        <div className="flex flex-col gap-2 border-b border-slate-200/90 px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between">
-          <p className="max-w-xl text-left text-[11px] leading-snug text-slate-600">
-            <span className="font-semibold text-slate-800">Alcance por fecha:</span> los ajustes de promedios y ganancia
-            (y los precios guardados en <span className="font-mono">Caja</span>) quedan ligados a la{' '}
-            <span className="font-semibold">fecha operativa {fechaDia}</span>: no reescriben cierres de días anteriores en
-            la base. Si existe cadena de backups, un recálculo puede actualizar <span className="font-mono">balances_diarios</span>{' '}
-            desde este día hacia adelante, no hacia el pasado.
-          </p>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                setEditAudit((v) => {
-                  if (v) setAuditFieldText({})
-                  return !v
-                })
-              }
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-white"
-            >
-              <Save className="h-3.5 w-3.5" aria-hidden />
-              {editAudit ? 'Bloquear edición' : 'Editar promedios / ganancia'}
-            </button>
-            <button
-              type="button"
-              disabled={snapshotMode || filasAuditVivo.length === 0}
-              onClick={() => exportAuditoriaVivoExcel(filasAuditVivo, fechaDia, etiquetaMoneda)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-white disabled:opacity-50"
-            >
-              <Download className="h-3.5 w-3.5" aria-hidden />
-              Excel
-            </button>
-          </div>
-        </div>
         {loading ? (
           <p className="p-4 text-center text-base text-slate-500">…</p>
         ) : filasAuditVivo.length === 0 ? (
           <p className="p-4 text-center text-base text-slate-500">Sin divisas con saldo o movimiento para este día.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] border-collapse text-center text-base">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-100">
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Fecha</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Moneda</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Cant. inicial</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra ant.</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Cant. final</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. compra hoy</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Prom. venta hoy</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Δ (venta − compra) hoy</th>
-                  <th className="px-1.5 py-2 font-bold text-slate-700">Ganancia (COP)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filasAuditVivo.map((row) => {
-                  const key = row.moneda
-                  const saving = !!savingAudit[key]
-                  const ov = auditOverrides.get(key) ?? {}
-                  const tx = auditFieldText[key] ?? { ci: '', pa: '', pch: '', g: '' }
-
-                  const saveField = async (field: 'ci' | 'pa' | 'pch' | 'g') => {
-                    setSavingAudit((p) => ({ ...p, [key]: true }))
-                    try {
-                      const cur = auditFieldTextRef.current[key] ?? { ci: '', pa: '', pch: '', g: '' }
-                      const payload: Record<string, unknown> = { fecha: fechaDia, moneda: key }
-                      if (field === 'ci') {
-                        const t = cur.ci.trim()
-                        payload.cantidad_inicial = t ? parseFlexibleNumber(t) : undefined
-                      }
-                      if (field === 'pa') {
-                        const t = cur.pa.trim()
-                        payload.promedio_anterior = t ? parseFlexibleNumber(t) : undefined
-                      }
-                      if (field === 'pch') {
-                        const t = cur.pch.trim()
-                        payload.promedio_compra_hoy = t ? parseFlexibleNumber(t) : undefined
-                      }
-                      if (field === 'g') {
-                        const t = cur.g.trim()
-                        payload.ganancia_cop = t ? parseFlexibleNumber(t) : null
-                      }
-                      const res = await upsertAuditoriaOverride(payload)
-                      if (!res.ok) {
-                        toast.error(res.error)
-                        return
-                      }
-                      toast.success('Guardado')
-                      await load()
-                    } finally {
-                      setSavingAudit((p) => ({ ...p, [key]: false }))
-                    }
-                  }
-
-                  const patchTx = (patch: Partial<AuditFieldTextRow>) => {
-                    setAuditFieldText((prev) => {
-                      const base = prev[key] ?? { ci: '', pa: '', pch: '', g: '' }
-                      return { ...prev, [key]: { ...base, ...patch } }
-                    })
-                  }
-
-                  return (
-                    <tr key={row.moneda} className="border-b border-slate-100">
-                      <td className="px-1.5 py-1.5 font-mono text-slate-800">{fechaDia}</td>
-                      <td className="px-1.5 py-1.5 text-left font-medium sm:text-center">{etiquetaMoneda(row.moneda)}</td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">
-                        {editAudit ? (
-                          <input
-                            value={tx.ci}
-                            disabled={saving}
-                            onChange={(e) => patchTx({ ci: e.target.value })}
-                            onBlur={() => void saveField('ci')}
-                            className="mx-auto w-full max-w-[150px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
-                            inputMode="decimal"
-                          />
-                        ) : (
-                          formatMilesEs(row.cantidadInicial, 4)
-                        )}
-                      </td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">
-                        {editAudit ? (
-                          <input
-                            value={tx.pa}
-                            disabled={saving}
-                            onChange={(e) => patchTx({ pa: e.target.value })}
-                            onBlur={() => void saveField('pa')}
-                            className="mx-auto w-full max-w-[150px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
-                            inputMode="decimal"
-                          />
-                        ) : (
-                          formatMilesEs(row.promedioAnterior, 6)
-                        )}
-                      </td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">{formatMilesEs(row.cantidadFinal, 4)}</td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">
-                        {editAudit ? (
-                          <input
-                            value={tx.pch}
-                            disabled={saving}
-                            onChange={(e) => patchTx({ pch: e.target.value })}
-                            onBlur={() => void saveField('pch')}
-                            className="mx-auto w-full max-w-[150px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
-                            inputMode="decimal"
-                          />
-                        ) : (
-                          formatMilesEs(row.promedioCompraHoy, 6)
-                        )}
-                      </td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums">
-                        {row.promedioVentaHoy > 1e-12 ? formatMilesEs(row.promedioVentaHoy, 6) : formatMilesEs(0, 6)}
-                      </td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums text-slate-800">
-                        {formatMilesEs(row.deltaVentaMenosCompraHoy, 6)}
-                      </td>
-                      <td className="px-1.5 py-1.5 font-mono tabular-nums font-semibold text-slate-900">
-                        {editAudit ? (
-                          <input
-                            value={tx.g}
-                            disabled={saving}
-                            title="Vacío = cálculo automático por promedios. Valor = ganancia COP fija para esta moneda."
-                            placeholder="Auto"
-                            onChange={(e) => patchTx({ g: e.target.value })}
-                            onBlur={() => void saveField('g')}
-                            className="mx-auto w-full max-w-[130px] border-0 border-b-2 border-slate-300 bg-slate-50/90 py-2 px-2 text-center font-mono text-[13px] shadow-inner focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-0"
-                            inputMode="decimal"
-                          />
-                        ) : (
-                          <span className="inline-flex flex-col items-center gap-0.5">
-                            <span>
-                              {Math.abs(row.gananciaCop) < 1e-6 ? formatMilesEs(0, 0) : formatCOP(row.gananciaCop)}
-                            </span>
-                            {ov.ganancia_cop != null ? (
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Manual</span>
-                            ) : null}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <AuditoriaVivoTable
+            fechaDia={fechaDia}
+            filas={filasAuditVivo}
+            auditOverrides={auditOverrides}
+            editAudit={editAudit}
+            etiquetaMoneda={etiquetaMoneda}
+            onSaved={load}
+          />
         )}
+        {!loading && filasAuditVivo.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-center gap-3 border-t border-slate-200 px-3 py-4">
+            <button
+              type="button"
+              onClick={() => setEditAudit((v) => !v)}
+              className="min-h-[48px] rounded-xl border border-slate-300 bg-white px-5 text-base font-bold text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              <Save className="mr-1.5 inline h-4 w-4" aria-hidden />
+              {editAudit ? 'Solo ver' : 'Editar promedios / ganancia'}
+            </button>
+            <button
+              type="button"
+              disabled={snapshotMode}
+              onClick={() => exportAuditoriaVivoExcel(filasAuditVivo, fechaDia, etiquetaMoneda)}
+              className="min-h-[48px] rounded-xl border border-slate-300 bg-white px-5 text-base font-bold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              <Download className="mr-1.5 inline h-4 w-4" aria-hidden />
+              Excel
+            </button>
+            <button
+              type="button"
+              disabled={balanceLoading}
+              onClick={() => abrirDialogAjusteGanancias()}
+              className="min-h-[48px] rounded-xl border border-slate-300 bg-white px-5 text-base font-bold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              <CalendarRange className="mr-1.5 inline h-4 w-4" aria-hidden />
+              Ajustar ganancia
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <p className="text-sm text-slate-500">
@@ -1094,196 +863,27 @@ export default function DashboardPage() {
         </a>
       </p>
 
-      {dialogGanDiaOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-          role="presentation"
-          onClick={() => {
-            if (!dialogGanGuardando) setDialogGanDiaOpen(false)
-          }}
-        >
-          <div
-            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="gan-dia-titulo"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="gan-dia-titulo" className="text-base font-bold text-slate-900">
-              Ganancia por día y acumulado de arranque
-            </h2>
-            <p className="mt-1 text-xs text-slate-600">
-              Fecha máxima: {fechaDia}. Al guardar un día pasado se recalcula la cadena de &quot;Debo tener&quot; desde esa fecha. El acumulado de arranque es lo que ya llevaban antes de registrar días en la app.
-            </p>
-            <div className="mt-4 space-y-3">
-              <div>
-                <label htmlFor="gan-dia-fecha" className="mb-1 block text-xs font-semibold text-slate-600">
-                  Día a ajustar
-                </label>
-                <input
-                  id="gan-dia-fecha"
-                  type="date"
-                  max={fechaDia}
-                  value={dialogGanFecha}
-                  onChange={(e) => setDialogGanFecha(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
-                />
-              </div>
-              <div>
-                <label htmlFor="gan-dia-monto" className="mb-1 block text-xs font-semibold text-slate-600">
-                  Ganancia total del día (COP)
-                </label>
-                <input
-                  id="gan-dia-monto"
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="Ej. 850000 o 850.000,50"
-                  value={dialogGanMonto}
-                  onChange={(e) => setDialogGanMonto(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
-                />
-              </div>
-              <div className="border-t border-slate-200 pt-3">
-                <label htmlFor="gan-acum-inicial" className="mb-1 block text-xs font-semibold text-slate-600">
-                  Acumulado de arranque (COP)
-                </label>
-                <p className="mb-1 text-[11px] text-slate-500">
-                  Suma al total de la tarjeta &quot;Acumulado ganancias&quot; (ganancias previas al sistema).
-                </p>
-                <input
-                  id="gan-acum-inicial"
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="Ej. 12500000"
-                  value={dialogAcumInicialMonto}
-                  onChange={(e) => setDialogAcumInicialMonto(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
-                />
-              </div>
-            </div>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={dialogGanGuardando}
-                onClick={() => void (async () => {
-                  if (!/^\d{4}-\d{2}-\d{2}$/.test(dialogGanFecha)) {
-                    toast.error('Elija una fecha válida.')
-                    return
-                  }
-                  if (dialogGanFecha > fechaDia) {
-                    toast.error('La fecha no puede ser posterior a la fecha operativa actual.')
-                    return
-                  }
-                  const n = parseFlexibleNumber(dialogGanMonto)
-                  if (!dialogGanMonto.trim() || !Number.isFinite(n)) {
-                    toast.error('Indique un monto COP válido.')
-                    return
-                  }
-                  setDialogGanGuardando(true)
-                  try {
-                    const res = await upsertGananciaDiaOverride({ fecha: dialogGanFecha, ganancia_cop: n })
-                    if (!res.ok) {
-                      toast.error(res.error)
-                      return
-                    }
-                    toast.success('Ajuste guardado. Balances actualizados desde esa fecha.')
-                    setDialogGanDiaOpen(false)
-                    await load()
-                  } finally {
-                    setDialogGanGuardando(false)
-                  }
-                })()}
-                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 sm:flex-none"
-              >
-                {dialogGanGuardando ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-                Guardar ganancia del día
-              </button>
-              <button
-                type="button"
-                disabled={dialogGanGuardando}
-                onClick={() => void (async () => {
-                  const n = parseFlexibleNumber(dialogAcumInicialMonto)
-                  if (!dialogAcumInicialMonto.trim() || !Number.isFinite(n)) {
-                    toast.error('Indique un acumulado de arranque válido.')
-                    return
-                  }
-                  setDialogGanGuardando(true)
-                  try {
-                    const res = await upsertGananciaAcumuladaInicial({ monto_cop: n })
-                    if (!res.ok) {
-                      toast.error(res.error)
-                      return
-                    }
-                    toast.success('Acumulado de arranque guardado.')
-                    await load()
-                  } finally {
-                    setDialogGanGuardando(false)
-                  }
-                })()}
-                className="rounded-lg border border-emerald-600 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
-              >
-                Guardar arranque
-              </button>
-              <button
-                type="button"
-                disabled={dialogGanGuardando}
-                onClick={() => void (async () => {
-                  setDialogGanGuardando(true)
-                  try {
-                    const res = await eliminarGananciaAcumuladaInicial()
-                    if (!res.ok) {
-                      toast.error(res.error)
-                      return
-                    }
-                    toast.success('Acumulado de arranque eliminado.')
-                    setDialogAcumInicialMonto('')
-                    await load()
-                  } finally {
-                    setDialogGanGuardando(false)
-                  }
-                })()}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Quitar arranque
-              </button>
-              <button
-                type="button"
-                disabled={dialogGanGuardando}
-                onClick={() => void (async () => {
-                  if (!/^\d{4}-\d{2}-\d{2}$/.test(dialogGanFecha)) {
-                    toast.error('Elija una fecha válida.')
-                    return
-                  }
-                  setDialogGanGuardando(true)
-                  try {
-                    const res = await eliminarGananciaDiaOverride({ fecha: dialogGanFecha })
-                    if (!res.ok) {
-                      toast.error(res.error)
-                      return
-                    }
-                    toast.success('Ajuste eliminado. Recalculado con movimientos del día.')
-                    setDialogGanDiaOpen(false)
-                    await load()
-                  } finally {
-                    setDialogGanGuardando(false)
-                  }
-                })()}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Quitar ajuste de ese día
-              </button>
-              <button
-                type="button"
-                disabled={dialogGanGuardando}
-                onClick={() => setDialogGanDiaOpen(false)}
-                className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <DialogAjusteGanancia
+        open={dialogGanDiaOpen}
+        onClose={() => setDialogGanDiaOpen(false)}
+        fechaDia={fechaDia}
+        gananciaAcumInicialCop={gananciaAcumInicialCop}
+        onSaved={load}
+      />
     </main>
+  )
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="p-6 text-center text-base text-slate-500" aria-busy="true">
+          …
+        </main>
+      }
+    >
+      <DashboardPageInner />
+    </Suspense>
   )
 }
