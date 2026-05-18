@@ -12,7 +12,6 @@ import type { Database } from '@/database'
 import { saldoPromedioPorMonedaDesdeCierres, type CierreRowParaArrastre } from '@/lib/ultimoCierre'
 import { exportAuditoriaVivoExcel } from '@/lib/exportCierresExcel'
 import { obtenerTrmMercado } from '@/app/actions/trm'
-import { TRM_TICKER_ORDER, type TrmMercadoFila } from '@/lib/trm-ticker'
 import {
   filasAuditoriaVivo,
   gananciaListaDesdeAuditoria,
@@ -33,29 +32,6 @@ type DetalleTarjetasSnap = {
   compras?: { codigo: string; valor: number }[]
   ventas?: { codigo: string; valor: number }[]
   ganancia?: { codigo: string; valor_cop: number }[]
-}
-
-const FLAGS: Record<string, string> = {
-  USD: '🇺🇸',
-  EUR: '🇪🇺',
-  GBP: '🇬🇧',
-  CAD: '🇨🇦',
-  BRL: '🇧🇷',
-  MXN: '🇲🇽',
-  CLP: '🇨🇱',
-  PEN: '🇵🇪',
-  ARS: '🇦🇷',
-  AUD: '🇦🇺',
-}
-
-function textoActualizado(iso: string | null) {
-  if (!iso) return '—'
-  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
-  if (m < 1) return 'ahora'
-  if (m < 60) return `${m} min`
-  const h = Math.floor(m / 60)
-  if (h < 48) return `${h} h`
-  return `${Math.floor(h / 24)} d`
 }
 
 function sumTxMontoDivisa(rows: Transaccion[], tipo: 'COMPRA' | 'VENTA'): { codigo: string; valor: number }[] {
@@ -231,8 +207,6 @@ function DashboardPageInner() {
   const [deboRows, setDeboRows] = useState<{ divisa: string; monto: number }[]>([])
   const [rates, setRates] = useState<CopPorUnidad | null>(null)
   const [ratesLoading, setRatesLoading] = useState(true)
-  const [trmFilas, setTrmFilas] = useState<TrmMercadoFila[]>([])
-  const [ultimaTrm, setUltimaTrm] = useState<string | null>(null)
   const [cierresPrevRows, setCierresPrevRows] = useState<CierreRowParaArrastre[]>([])
   // Carga inicial ahora se edita inline en la tabla (overrides), no en un diálogo.
   const [invRows, setInvRows] = useState<{ divisa: string; cantidad_actual: number }[]>([])
@@ -567,8 +541,6 @@ function DashboardPageInner() {
       const res = await obtenerTrmMercado()
       if (cancelled) return
       setRates(res.rates)
-      setTrmFilas(res.filas)
-      setUltimaTrm(res.ultimaActualizacion)
       setRatesLoading(false)
     })()
     return () => {
@@ -698,12 +670,6 @@ function DashboardPageInner() {
     }
   }, [divisasMaestro])
 
-  const filasPorCodigo = useMemo(() => {
-    const m = new Map<string, TrmMercadoFila>()
-    for (const f of trmFilas) m.set(f.codigo, f)
-    return m
-  }, [trmFilas])
-
   const recientes = useMemo(() => txRows.slice(0, 10), [txRows])
 
   return (
@@ -780,31 +746,6 @@ function DashboardPageInner() {
         <TarjetaBalanceCop titulo="Tengo" valorCop={tengoCop} loading={balanceLoading} />
         <TarjetaBalanceCop titulo="Debo tener" valorCop={deboTenerCop} loading={balanceLoading} />
       </div>
-
-      <section className="rounded-xl border border-slate-200 bg-slate-50/90 p-3 shadow-md">
-        <div className="mb-2 flex justify-end">
-          <span className="text-sm text-slate-500">{ratesLoading ? '…' : textoActualizado(ultimaTrm)}</span>
-        </div>
-        <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {TRM_TICKER_ORDER.map((code) => {
-            const f = filasPorCodigo.get(code)
-            const v = f?.valor_cop ?? copMap[code]
-            const show = !ratesLoading && Number(v) > 0
-            return (
-              <div
-                key={code}
-                className="min-w-[92px] shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-center shadow-sm"
-              >
-                <p className="text-base leading-none" aria-hidden>
-                  {FLAGS[code] ?? '💱'}
-                </p>
-                <p className="mt-1 text-sm font-bold text-slate-800">{code}</p>
-                <p className="font-mono text-base font-semibold tabular-nums">{show ? formatCOP(Number(v)) : '—'}</p>
-              </div>
-            )
-          })}
-        </div>
-      </section>
 
       <section className="mx-auto max-w-5xl overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-lg ring-1 ring-slate-200/40">
         {loading ? (
