@@ -16,6 +16,7 @@ import {
   History,
 } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
+import { clearServerSessionCookies } from '@/lib/auth/sync-server-session'
 import { cn } from '@/lib/utils'
 
 type NavEntry = {
@@ -42,6 +43,7 @@ export function Sidebar() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
+    await clearServerSessionCookies()
     router.refresh()
     router.replace('/login')
   }

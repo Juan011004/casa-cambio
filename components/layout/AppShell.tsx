@@ -18,6 +18,7 @@ import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { PageTransition } from '@/components/layout/PageTransition'
 import { FechaOperativaProvider } from '@/components/fecha-operativa/FechaOperativaProvider'
+import { SessionSecurityProvider } from '@/components/auth/SessionSecurityProvider'
 import { cn } from '@/lib/utils'
 
 const NO_SHELL_ROUTES = ['/login']
@@ -41,9 +42,12 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const hideShell = NO_SHELL_ROUTES.includes(pathname)
 
-  if (hideShell) return <>{children}</>
+  if (hideShell) {
+    return <SessionSecurityProvider>{children}</SessionSecurityProvider>
+  }
 
   return (
+    <SessionSecurityProvider>
     <FechaOperativaProvider>
     <div className="flex min-h-screen bg-white text-base text-black">
       <Suspense
@@ -86,5 +90,6 @@ export function AppShell({ children }: AppShellProps) {
       </div>
     </div>
     </FechaOperativaProvider>
+    </SessionSecurityProvider>
   )
 }

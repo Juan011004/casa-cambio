@@ -40,6 +40,11 @@ export async function middleware(req: NextRequest) {
   } = await supabase.auth.getUser()
 
   const isLogin = pathname === '/login'
+  const isAuthSync = pathname === '/api/auth/sync'
+
+  if (isAuthSync) {
+    return res
+  }
 
   if (user && isLogin) {
     const url = req.nextUrl.clone()
@@ -50,7 +55,15 @@ export async function middleware(req: NextRequest) {
   if (!user && !isLogin) {
     const url = req.nextUrl.clone()
     url.pathname = '/login'
-    return NextResponse.redirect(url)
+    const redirect = NextResponse.redirect(url)
+    redirect.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+    return redirect
+  }
+
+  if (!isLogin) {
+    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    res.headers.set('Pragma', 'no-cache')
+    res.headers.set('Expires', '0')
   }
 
   return res

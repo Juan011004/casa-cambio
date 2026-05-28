@@ -15,6 +15,7 @@ import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { errorMessage } from '@/lib/errorMessage'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
+import { AceptacionPoliticaDatos } from '@/components/legal/AceptacionPoliticaDatos'
 import type { MetodoPago } from '@/types/database'
 
 const buySchema = z.object({
@@ -43,6 +44,7 @@ const METODOS: MetodoPago[] = ['Efectivo', 'Nequi', 'Cheque']
 export default function BuyForm() {
   const { rows } = useDivisasMaestro()
   const [loading, setLoading] = useState(false)
+  const [aceptaPolitica, setAceptaPolitica] = useState(false)
   const { fecha } = useFechaOperativa()
 
   const opciones = useMemo(() => (rows.length ? rows : DIVISAS_FALLBACK), [rows])
@@ -90,6 +92,7 @@ export default function BuyForm() {
       }
       toast.success('Compra registrada')
       clearErrors()
+      setAceptaPolitica(false)
       reset(
         { divisa: data.divisa, cantidad: '', precio: '', metodo_pago: 'Efectivo' },
         { keepErrors: false, keepDirty: false, keepTouched: false, keepIsSubmitted: false }
@@ -172,9 +175,15 @@ export default function BuyForm() {
           </div>
         </div>
 
+        <AceptacionPoliticaDatos
+          id="acepta-politica-compra"
+          checked={aceptaPolitica}
+          onCheckedChange={setAceptaPolitica}
+        />
+
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || !aceptaPolitica}
           className="btn-primary mt-1 min-h-[48px] w-full text-base font-semibold"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Registrar compra'}

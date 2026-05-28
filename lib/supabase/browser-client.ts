@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { BrowserCookieAuthStorageAdapter, isBrowser } from '@supabase/auth-helpers-shared'
+import { isBrowser } from '@supabase/auth-helpers-shared'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/database'
 
@@ -24,7 +24,7 @@ export function createBrowserSupabaseClient(): SupabaseClient<Database> {
         autoRefreshToken: browser,
         detectSessionInUrl: browser,
         persistSession: true,
-        storage: new BrowserCookieAuthStorageAdapter(),
+        storage: browser ? window.sessionStorage : undefined,
         lock: noopLock,
       },
       global: {

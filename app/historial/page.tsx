@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import { actualizarTransaccionesHistorial } from '@/app/actions/historialTransacciones'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
+import { AceptacionPoliticaDatos } from '@/components/legal/AceptacionPoliticaDatos'
 
 const PAGE_SIZE = 15
 
@@ -52,6 +53,7 @@ export default function HistorialPage() {
   const [modoEdicion, setModoEdicion] = useState(false)
   const [borrador, setBorrador] = useState<Record<string, BorradorFila>>({})
   const [guardando, setGuardando] = useState(false)
+  const [aceptaPolitica, setAceptaPolitica] = useState(false)
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -94,6 +96,7 @@ export default function HistorialPage() {
   useEffect(() => {
     if (!modoEdicion) {
       setBorrador({})
+      setAceptaPolitica(false)
       return
     }
     const next: Record<string, BorradorFila> = {}
@@ -230,7 +233,7 @@ export default function HistorialPage() {
           </button>
           <button
             type="button"
-            disabled={rows.length === 0 || guardando}
+            disabled={rows.length === 0 || guardando || (modoEdicion && !aceptaPolitica)}
             onClick={() => void onModificarOGuardar()}
             className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-lg border-2 px-4 py-2 text-sm font-bold shadow-md disabled:cursor-not-allowed disabled:opacity-50 ${
               modoEdicion
@@ -244,9 +247,16 @@ export default function HistorialPage() {
       </header>
 
       {modoEdicion ? (
-        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-center text-sm font-medium text-amber-950">
-          Modo edición: no cambie de página hasta guardar o recargar la página para descartar.
-        </p>
+        <div className="space-y-2">
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-center text-sm font-medium text-amber-950">
+            Modo edición: no cambie de página hasta guardar o recargar la página para descartar.
+          </p>
+          <AceptacionPoliticaDatos
+            id="acepta-politica-historial"
+            checked={aceptaPolitica}
+            onCheckedChange={setAceptaPolitica}
+          />
+        </div>
       ) : null}
 
       <div className="card-pro border border-slate-100 p-4">

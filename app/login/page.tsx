@@ -7,6 +7,9 @@ import { useRouter } from 'next/navigation'
 import { Banknote, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/errorMessage'
+import { LoginSecurityBanner } from '@/components/auth/LoginSecurityBanner'
+import { AuthAntiAutocompleteFields } from '@/components/auth/AuthAntiAutocompleteFields'
+import { syncServerSessionFromClient } from '@/lib/auth/sync-server-session'
 
 function isTooManyRequests(err: unknown): boolean {
   if (err && typeof err === 'object') {
@@ -33,6 +36,7 @@ export default function LoginPage() {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
+      await syncServerSessionFromClient()
       await router.refresh()
       router.replace('/dashboard')
     } catch (err: unknown) {
@@ -59,6 +63,8 @@ export default function LoginPage() {
         transition={{ duration: 0.22 }}
         className="w-full max-w-[340px]"
       >
+        <LoginSecurityBanner />
+
         <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-[0_8px_30px_rgb(15,23,42,0.06)]">
           <header className="mb-6 flex flex-col items-center gap-2.5 text-center">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 shadow-sm">
@@ -72,52 +78,49 @@ export default function LoginPage() {
 
           <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Iniciar sesión</p>
 
-          <form onSubmit={handleLogin} className="mt-3 space-y-2.5" autoComplete="on" noValidate>
-            <div>
-              <label htmlFor="email" className="mb-1 block text-[11px] font-medium text-slate-600">
-                Correo
-              </label>
-              <div className="relative">
-                <Mail className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  placeholder="correo@ejemplo.com"
-                  className="input-field min-h-[38px] py-2 pl-8 text-[13px]"
-                  autoComplete="username"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="password" className="mb-1 block text-[11px] font-medium text-slate-600">
-                Contraseña
-              </label>
-              <div className="relative">
-                <Lock className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                <input
-                  id="password"
-                  type={showPass ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="input-field min-h-[38px] py-2 pl-8 pr-9 text-[13px]"
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-slate-100 bg-white text-slate-500 hover:bg-slate-50"
-                  onClick={() => setShowPass((v) => !v)}
-                  aria-label={showPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                >
-                  {showPass ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
-              </div>
-            </div>
+          <form onSubmit={handleLogin} className="relative mt-3 space-y-2.5" autoComplete="off" noValidate>
+            <AuthAntiAutocompleteFields
+              email={{
+                id: 'login-email',
+                label: 'Correo',
+                icon: (
+                  <Mail className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                ),
+                inputProps: {
+                  type: 'email',
+                  value: email,
+                  onChange: (e) => setEmail(e.target.value),
+                  required: true,
+                  placeholder: 'correo@ejemplo.com',
+                  className: 'input-field min-h-[38px] py-2 pl-8 text-[13px]',
+                },
+              }}
+              password={{
+                id: 'login-password',
+                label: 'Contraseña',
+                icon: (
+                  <Lock className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                ),
+                inputProps: {
+                  type: showPass ? 'text' : 'password',
+                  value: password,
+                  onChange: (e) => setPassword(e.target.value),
+                  required: true,
+                  placeholder: '••••••••',
+                  className: 'input-field min-h-[38px] py-2 pl-8 pr-9 text-[13px]',
+                },
+                trailing: (
+                  <button
+                    type="button"
+                    className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-slate-100 bg-white text-slate-500 hover:bg-slate-50"
+                    onClick={() => setShowPass((v) => !v)}
+                    aria-label={showPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  >
+                    {showPass ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                ),
+              }}
+            />
 
             <button
               type="submit"
