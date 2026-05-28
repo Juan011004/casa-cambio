@@ -14,6 +14,7 @@ import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { AceptacionPoliticaDatos } from '@/components/legal/AceptacionPoliticaDatos'
+import { usePoliticaDatos } from '@/components/legal/PoliticaDatosProvider'
 
 type Props = {
   tipo: 'DEBEN' | 'DEBO'
@@ -30,7 +31,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
   const [divisa, setDivisa] = useState('COP')
   const [monto, setMonto] = useState('')
   const [loading, setLoading] = useState(false)
-  const [aceptaPolitica, setAceptaPolitica] = useState(false)
+  const { aceptada: aceptaPolitica } = usePoliticaDatos()
   const [lista, setLista] = useState<RegistroDeuda[]>([])
   const [cargandoLista, setCargandoLista] = useState(true)
   const [editandoId, setEditandoId] = useState<string | null>(null)
@@ -117,7 +118,6 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
       toast.success('Guardado')
       setResponsable('')
       setMonto('')
-      setAceptaPolitica(false)
       await cargar()
     } catch (err: unknown) {
       toast.error(errorMessage(err))
@@ -226,11 +226,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
           onChange={setMonto}
           inputClassName="input-field input-numeric min-h-[48px] text-base"
         />
-        <AceptacionPoliticaDatos
-          id={`acepta-politica-deuda-${tipo}`}
-          checked={aceptaPolitica}
-          onCheckedChange={setAceptaPolitica}
-        />
+        <AceptacionPoliticaDatos id={`acepta-politica-deuda-${tipo}`} />
         <button
           type="submit"
           disabled={loading || !aceptaPolitica}

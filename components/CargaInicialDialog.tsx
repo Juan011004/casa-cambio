@@ -12,6 +12,7 @@ import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { fechaLocalYYYYMMDD } from '@/lib/utils'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 import { AceptacionPoliticaDatos } from '@/components/legal/AceptacionPoliticaDatos'
+import { usePoliticaDatos } from '@/components/legal/PoliticaDatosProvider'
 
 export function CargaInicialDialog({
   open,
@@ -30,7 +31,7 @@ export function CargaInicialDialog({
   const [cantidad, setCantidad] = useState('')
   const [promedio, setPromedio] = useState('')
   const [loading, setLoading] = useState(false)
-  const [aceptaPolitica, setAceptaPolitica] = useState(false)
+  const { aceptada: aceptaPolitica } = usePoliticaDatos()
 
   useEffect(() => {
     if (!open) return
@@ -38,7 +39,6 @@ export function CargaInicialDialog({
     setFecha(fechaOperativa)
     setCantidad('')
     setPromedio('')
-    setAceptaPolitica(false)
   }, [open, fechaOperativa])
 
   if (!open) return null
@@ -151,11 +151,7 @@ export function CargaInicialDialog({
             value={promedio}
             onChange={setPromedio}
           />
-          <AceptacionPoliticaDatos
-            id="acepta-politica-carga-inicial"
-            checked={aceptaPolitica}
-            onCheckedChange={setAceptaPolitica}
-          />
+          <AceptacionPoliticaDatos id="acepta-politica-carga-inicial" />
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold">
               Cancelar

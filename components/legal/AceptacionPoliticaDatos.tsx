@@ -2,15 +2,15 @@
 
 import { useState } from 'react'
 import { PoliticaDatosDialog } from '@/components/legal/PoliticaDatosDialog'
+import { usePoliticaDatos } from '@/components/legal/PoliticaDatosProvider'
 
 type Props = {
-  checked: boolean
-  onCheckedChange: (value: boolean) => void
   id?: string
   className?: string
 }
 
-export function AceptacionPoliticaDatos({ checked, onCheckedChange, id = 'acepta-politica-datos', className }: Props) {
+export function AceptacionPoliticaDatos({ id = 'acepta-politica-datos', className }: Props) {
+  const { aceptada, setAceptada } = usePoliticaDatos()
   const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
@@ -22,10 +22,9 @@ export function AceptacionPoliticaDatos({ checked, onCheckedChange, id = 'acepta
         <input
           id={id}
           type="checkbox"
-          checked={checked}
-          onChange={(e) => onCheckedChange(e.target.checked)}
+          checked={aceptada}
+          onChange={(e) => setAceptada(e.target.checked)}
           className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-          required
         />
         <span>
           Acepto la{' '}

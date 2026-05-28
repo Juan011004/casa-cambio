@@ -13,6 +13,7 @@ import { actualizarTransaccionesHistorial } from '@/app/actions/historialTransac
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { AceptacionPoliticaDatos } from '@/components/legal/AceptacionPoliticaDatos'
+import { usePoliticaDatos } from '@/components/legal/PoliticaDatosProvider'
 
 const PAGE_SIZE = 15
 
@@ -53,7 +54,7 @@ export default function HistorialPage() {
   const [modoEdicion, setModoEdicion] = useState(false)
   const [borrador, setBorrador] = useState<Record<string, BorradorFila>>({})
   const [guardando, setGuardando] = useState(false)
-  const [aceptaPolitica, setAceptaPolitica] = useState(false)
+  const { aceptada: aceptaPolitica } = usePoliticaDatos()
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -96,7 +97,6 @@ export default function HistorialPage() {
   useEffect(() => {
     if (!modoEdicion) {
       setBorrador({})
-      setAceptaPolitica(false)
       return
     }
     const next: Record<string, BorradorFila> = {}
@@ -251,11 +251,7 @@ export default function HistorialPage() {
           <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-center text-sm font-medium text-amber-950">
             Modo edición: no cambie de página hasta guardar o recargar la página para descartar.
           </p>
-          <AceptacionPoliticaDatos
-            id="acepta-politica-historial"
-            checked={aceptaPolitica}
-            onCheckedChange={setAceptaPolitica}
-          />
+          <AceptacionPoliticaDatos id="acepta-politica-historial" />
         </div>
       ) : null}
 

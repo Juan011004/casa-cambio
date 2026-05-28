@@ -18,6 +18,7 @@ import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { PageTransition } from '@/components/layout/PageTransition'
 import { FechaOperativaProvider } from '@/components/fecha-operativa/FechaOperativaProvider'
+import { PoliticaDatosProvider } from '@/components/legal/PoliticaDatosProvider'
 import { SessionSecurityProvider } from '@/components/auth/SessionSecurityProvider'
 import { cn } from '@/lib/utils'
 
@@ -49,6 +50,7 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <SessionSecurityProvider>
     <FechaOperativaProvider>
+    <PoliticaDatosProvider>
     <div className="flex min-h-screen bg-white text-base text-black">
       <Suspense
         fallback={
@@ -89,6 +91,7 @@ export function AppShell({ children }: AppShellProps) {
         </main>
       </div>
     </div>
+    </PoliticaDatosProvider>
     </FechaOperativaProvider>
     </SessionSecurityProvider>
   )
