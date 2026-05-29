@@ -88,8 +88,6 @@ export default function LoginForm({ csrfToken }: Props) {
             className="relative mt-3 space-y-2.5"
             autoComplete="off"
             noValidate
-            method="post"
-            action="/login"
           >
             <CsrfHiddenInput token={csrfToken} />
             <AuthAntiAutocompleteFields

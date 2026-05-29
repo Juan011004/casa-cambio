@@ -22,27 +22,17 @@ function clientIp(req: NextRequest): string {
 }
 
 function stripPermissiveCors(headers: Headers) {
-  const acao = headers.get('Access-Control-Allow-Origin')
-  if (acao === '*' || acao === '*, *') {
-    headers.delete('Access-Control-Allow-Origin')
-  }
+  headers.delete('Access-Control-Allow-Origin')
   headers.delete('Access-Control-Allow-Credentials')
   headers.delete('Access-Control-Allow-Methods')
   headers.delete('Access-Control-Allow-Headers')
+  headers.delete('Access-Control-Expose-Headers')
 }
 
 function setHeaderList(headers: Headers, list: ReadonlyArray<{ key: string; value: string }>) {
   for (const { key, value } of list) {
     headers.set(key, value)
   }
-}
-
-function ensureCsrfCookie(req: NextRequest, res: NextResponse): string {
-  const existing = req.cookies.get(CSRF_COOKIE)?.value
-  if (existing && existing.length >= 32) return existing
-  const token = generateCsrfToken()
-  res.cookies.set(CSRF_COOKIE, token, csrfCookieOptions(process.env.NODE_ENV === 'production'))
-  return token
 }
 
 type HeaderMode = 'page' | 'api' | 'static'
@@ -71,19 +61,28 @@ function applyHeaders(
 function createPageResponse(req: NextRequest): NextResponse {
   const nonce = generateNonce()
   const csp = buildPageCsp(nonce)
+  const existing = req.cookies.get(CSRF_COOKIE)?.value
+  const csrfToken =
+    existing && existing.length >= 32 ? existing : generateCsrfToken()
+
   const requestHeaders = new Headers(req.headers)
   requestHeaders.set('x-nonce', nonce)
   requestHeaders.set('Content-Security-Policy', csp)
+  requestHeaders.set('x-csrf-token', csrfToken)
 
   const res = NextResponse.next({
     request: { headers: requestHeaders },
   })
+
+  if (!existing || existing.length < 32) {
+    res.cookies.set(CSRF_COOKIE, csrfToken, csrfCookieOptions(process.env.NODE_ENV === 'production'))
+  }
+
   applyHeaders(res.headers, 'page', { nonce })
-  ensureCsrfCookie(req, res)
   return res
 }
 
-function withHeaders(response: NextResponse, pathname: string, mode: HeaderMode, nonce?: string) {
+function withHeaders(response: NextResponse, mode: HeaderMode, nonce?: string) {
   applyHeaders(response.headers, mode, mode === 'page' ? { nonce } : undefined)
   return response
 }
@@ -97,7 +96,6 @@ export async function middleware(req: NextRequest) {
   if (isApi && !checkRateLimit(`api:${ip}`)) {
     return withHeaders(
       NextResponse.json({ error: 'Demasiadas solicitudes. Espere unos segundos.' }, { status: 429 }),
-      pathname,
       'api'
     )
   }
@@ -120,7 +118,6 @@ export async function middleware(req: NextRequest) {
     if (!checkRateLimit(`action:${ip}`)) {
       return withHeaders(
         NextResponse.json({ error: 'Demasiadas solicitudes. Espere unos segundos.' }, { status: 429 }),
-        pathname,
         'api'
       )
     }

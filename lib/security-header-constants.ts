@@ -20,6 +20,7 @@ export const NO_STORE_HEADERS: ReadonlyArray<{ key: string; value: string }> = [
   { key: 'CDN-Cache-Control', value: 'no-store' },
   { key: 'Vercel-CDN-Cache-Control', value: 'no-store' },
   { key: 'Surrogate-Control', value: 'no-store' },
+  { key: 'Vary', value: 'Cookie, Authorization' },
 ]
 
 export const STATIC_ASSET_CACHE_HEADERS: ReadonlyArray<{ key: string; value: string }> = [

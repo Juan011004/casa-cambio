@@ -10,7 +10,7 @@ export function generateCsrfToken(): string {
 
 export function csrfCookieOptions(secure: boolean) {
   return {
-    httpOnly: false as const,
+    httpOnly: true as const,
     sameSite: 'strict' as const,
     secure,
     path: '/',

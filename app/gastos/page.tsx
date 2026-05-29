@@ -11,7 +11,7 @@ import { errorMessage } from '@/lib/errorMessage'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { CsrfHiddenInput } from '@/components/security/CsrfHiddenInput'
-import { useCsrfToken } from '@/hooks/useCsrfToken'
+import { useCsrfToken } from '@/components/security/CsrfProvider'
 
 type GastoRow = {
   id: string

@@ -15,7 +15,7 @@ import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { errorMessage } from '@/lib/errorMessage'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
 import { CsrfHiddenInput } from '@/components/security/CsrfHiddenInput'
-import { useCsrfToken } from '@/hooks/useCsrfToken'
+import { useCsrfToken } from '@/components/security/CsrfProvider'
 import type { MetodoPago } from '@/types/database'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 

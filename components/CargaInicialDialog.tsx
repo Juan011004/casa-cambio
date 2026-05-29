@@ -12,7 +12,7 @@ import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { fechaLocalYYYYMMDD } from '@/lib/utils'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 import { CsrfHiddenInput } from '@/components/security/CsrfHiddenInput'
-import { useCsrfToken } from '@/hooks/useCsrfToken'
+import { useCsrfToken } from '@/components/security/CsrfProvider'
 
 export function CargaInicialDialog({
   open,

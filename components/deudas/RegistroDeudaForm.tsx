@@ -14,7 +14,7 @@ import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { CsrfHiddenInput } from '@/components/security/CsrfHiddenInput'
-import { useCsrfToken } from '@/hooks/useCsrfToken'
+import { useCsrfToken } from '@/components/security/CsrfProvider'
 
 type Props = {
   tipo: 'DEBEN' | 'DEBO'
