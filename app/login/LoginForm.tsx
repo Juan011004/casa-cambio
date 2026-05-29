@@ -121,8 +121,7 @@ export default function LoginForm({ csrfToken }: Props) {
                   onChange: (e) => setCred(e.target.value),
                   required: true,
                   placeholder: '••••••••',
-                  className: `input-field min-h-[38px] py-2 pl-8 pr-9 text-[13px] font-mono ${showPass ? '' : '[--webkit-text-security:disc]'}`,
-                  style: showPass ? undefined : ({ WebkitTextSecurity: 'disc' } as React.CSSProperties),
+                  className: `input-field min-h-[38px] py-2 pl-8 pr-9 text-[13px] font-mono ${showPass ? '' : '[-webkit-text-security:disc]'}`,
                 },
                 trailing: (
                   <button

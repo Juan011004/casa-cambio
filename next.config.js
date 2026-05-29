@@ -3,7 +3,7 @@ const {
   buildFullPageHeaders,
   buildFullApiHeaders,
   buildStaticAssetHeaders,
-} = require('./lib/security-headers.js')
+} = require('./lib/next-config-headers.js')
 
 const nextConfig = {
   poweredByHeader: false,

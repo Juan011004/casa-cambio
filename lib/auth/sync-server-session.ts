@@ -6,9 +6,11 @@ export async function syncServerSessionFromClient(): Promise<void> {
   const {
     data: { session },
   } = await supabase.auth.getSession()
-  if (!session?.access_token || !session.refresh_token) return
+  if (!session?.access_token || !session.refresh_token) {
+    throw new Error('No se pudo obtener la sesión del navegador.')
+  }
 
-  await fetch('/api/auth/sync', {
+  const res = await fetch('/api/auth/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
@@ -17,6 +19,11 @@ export async function syncServerSessionFromClient(): Promise<void> {
       refresh_token: session.refresh_token,
     }),
   })
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null
+    throw new Error(body?.error ?? 'No se pudo sincronizar la sesión con el servidor.')
+  }
 }
 
 export async function clearServerSessionCookies(): Promise<void> {
