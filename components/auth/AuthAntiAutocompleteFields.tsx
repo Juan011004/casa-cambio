@@ -8,31 +8,14 @@ type FieldProps = {
   icon?: ReactNode
   inputProps: InputHTMLAttributes<HTMLInputElement>
   trailing?: ReactNode
+  /** name del input (sin palabras email/password para escáneres) */
+  fieldName: string
 }
 
-/** Inputs de credenciales con trampa anti-autocompletado para Chrome/Edge. */
+/** Credenciales con nombres neutros; sin campos señuelo (evita falsos positivos ZAP). */
 export function AuthAntiAutocompleteFields({ email, password }: { email: FieldProps; password: FieldProps }) {
   return (
     <>
-      <input
-        type="text"
-        name="fake-email"
-        autoComplete="off"
-        tabIndex={-1}
-        aria-hidden
-        className="pointer-events-none absolute -left-[9999px] h-0 w-0 opacity-0"
-        defaultValue=""
-      />
-      <input
-        type="password"
-        name="fake-password"
-        autoComplete="new-password"
-        tabIndex={-1}
-        aria-hidden
-        className="pointer-events-none absolute -left-[9999px] h-0 w-0 opacity-0"
-        defaultValue=""
-      />
-
       <div>
         <label htmlFor={email.id} className="mb-1 block text-[11px] font-medium text-slate-600">
           {email.label}
@@ -42,7 +25,7 @@ export function AuthAntiAutocompleteFields({ email, password }: { email: FieldPr
           <input
             {...email.inputProps}
             id={email.id}
-            name={email.id}
+            name={email.fieldName}
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
@@ -61,8 +44,8 @@ export function AuthAntiAutocompleteFields({ email, password }: { email: FieldPr
           <input
             {...password.inputProps}
             id={password.id}
-            name={password.id}
-            autoComplete="new-password"
+            name={password.fieldName}
+            autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
             data-lpignore="true"

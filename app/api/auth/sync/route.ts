@@ -1,12 +1,12 @@
 import { createServerActionClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
-import { NextResponse } from 'next/server'
+import { jsonWithSecurity } from '@/lib/api-response'
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { access_token?: string; refresh_token?: string }
     if (!body.access_token || !body.refresh_token) {
-      return NextResponse.json({ error: 'Tokens requeridos' }, { status: 400 })
+      return jsonWithSecurity({ error: 'Tokens requeridos' }, { status: 400 })
     }
 
     const supabase = createServerActionClient({ cookies })
@@ -15,16 +15,16 @@ export async function POST(request: Request) {
       refresh_token: body.refresh_token,
     })
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 401 })
+      return jsonWithSecurity({ error: error.message }, { status: 401 })
     }
-    return NextResponse.json({ ok: true })
+    return jsonWithSecurity({ ok: true })
   } catch {
-    return NextResponse.json({ error: 'Solicitud inválida' }, { status: 400 })
+    return jsonWithSecurity({ error: 'Solicitud inválida' }, { status: 400 })
   }
 }
 
 export async function DELETE() {
   const supabase = createServerActionClient({ cookies })
   await supabase.auth.signOut()
-  return NextResponse.json({ ok: true })
+  return jsonWithSecurity({ ok: true })
 }

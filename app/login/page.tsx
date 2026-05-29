@@ -84,10 +84,17 @@ export default function LoginPage() {
 
           <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Iniciar sesión</p>
 
-          <form onSubmit={handleLogin} className="relative mt-3 space-y-2.5" autoComplete="off" noValidate>
+          <form
+            onSubmit={handleLogin}
+            className="relative mt-3 space-y-2.5"
+            autoComplete="off"
+            noValidate
+            method="dialog"
+          >
             <AuthAntiAutocompleteFields
               email={{
-                id: 'login-email',
+                id: 'cc-field-user',
+                fieldName: 'cc_uid',
                 label: 'Correo',
                 icon: (
                   <Mail className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -102,7 +109,8 @@ export default function LoginPage() {
                 },
               }}
               password={{
-                id: 'login-password',
+                id: 'cc-field-secret',
+                fieldName: 'cc_secret',
                 label: 'Contraseña',
                 icon: (
                   <Lock className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
