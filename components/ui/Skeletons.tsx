@@ -1,17 +1,10 @@
-import { motion } from 'framer-motion'
-
 export function SkeletonCard() {
   return (
-    <motion.div
-      initial={{ opacity: 0.5 }}
-      animate={{ opacity: [0.5, 0.9, 0.5] }}
-      transition={{ duration: 1.2, repeat: Infinity }}
-      className="card-pro space-y-3 p-6"
-    >
+    <div className="card-pro animate-pulse space-y-3 p-6">
       <div className="h-3 w-24 rounded-full bg-slate-200 dark:bg-slate-800" />
       <div className="h-8 w-32 rounded-md bg-slate-200 dark:bg-slate-800" />
       <div className="h-2.5 w-20 rounded-full bg-slate-100 dark:bg-slate-800/80" />
-    </motion.div>
+    </div>
   )
 }
 

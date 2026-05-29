@@ -13,6 +13,8 @@ import { MoneyTextField } from '@/components/forms/MoneyTextField'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
+import { CsrfHiddenInput } from '@/components/security/CsrfHiddenInput'
+import { useCsrfToken } from '@/hooks/useCsrfToken'
 
 type Props = {
   tipo: 'DEBEN' | 'DEBO'
@@ -29,6 +31,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
   const [divisa, setDivisa] = useState('COP')
   const [monto, setMonto] = useState('')
   const [loading, setLoading] = useState(false)
+  const csrfToken = useCsrfToken()
   const [lista, setLista] = useState<RegistroDeuda[]>([])
   const [cargandoLista, setCargandoLista] = useState(true)
   const [editandoId, setEditandoId] = useState<string | null>(null)
@@ -185,6 +188,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
       ) : null}
 
       <form onSubmit={guardar} noValidate className="card-pro space-y-3 p-4">
+        <CsrfHiddenInput token={csrfToken} />
         <div>
           <label className="label" htmlFor="resp">
             {etiquetaPersona}

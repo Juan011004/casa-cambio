@@ -12,6 +12,7 @@ const nextConfig = {
     removeConsole:
       process.env.NODE_ENV === 'production' ? { exclude: ['error'] } : false,
   },
+  swcMinify: true,
   async headers() {
     return [
       {

@@ -14,6 +14,8 @@ import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { errorMessage } from '@/lib/errorMessage'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
+import { CsrfHiddenInput } from '@/components/security/CsrfHiddenInput'
+import { useCsrfToken } from '@/hooks/useCsrfToken'
 import type { MetodoPago } from '@/types/database'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 
@@ -43,6 +45,7 @@ const METODOS: MetodoPago[] = ['Efectivo', 'Nequi', 'Cheque']
 export default function SellForm() {
   const { rows } = useDivisasMaestro()
   const [loading, setLoading] = useState(false)
+  const csrfToken = useCsrfToken()
   const { fecha } = useFechaOperativa()
 
   const opciones = useMemo(() => (rows.length ? rows : DIVISAS_FALLBACK), [rows])
@@ -108,6 +111,7 @@ export default function SellForm() {
         noValidate
         className="card-pro space-y-3 p-4 text-base text-black"
       >
+        <CsrfHiddenInput token={csrfToken} />
         <div className="space-y-3">
           <div>
             <label className="label" htmlFor="divisa-v">

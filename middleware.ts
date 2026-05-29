@@ -2,9 +2,12 @@ import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { buildPageCsp, generateNonce } from '@/lib/csp'
+import { CSRF_COOKIE, csrfCookieOptions, generateCsrfToken } from '@/lib/csrf'
 import {
-  FULL_API_HEADERS,
-  FULL_PAGE_HEADERS,
+  API_BASE_HEADERS,
+  BASE_SECURITY_HEADERS,
+  NO_STORE_HEADERS,
   STATIC_ASSET_HEADERS,
   isStaticAssetPath,
 } from '@/lib/security-header-constants'
@@ -34,23 +37,54 @@ function setHeaderList(headers: Headers, list: ReadonlyArray<{ key: string; valu
   }
 }
 
-function applySecurityHeaders(headers: Headers, pathname: string, mode: 'page' | 'api' | 'static') {
-  stripPermissiveCors(headers)
-  if (mode === 'static' || isStaticAssetPath(pathname)) {
-    setHeaderList(headers, STATIC_ASSET_HEADERS)
-  } else if (mode === 'api') {
-    setHeaderList(headers, FULL_API_HEADERS)
-  } else {
-    setHeaderList(headers, FULL_PAGE_HEADERS)
-  }
+function ensureCsrfCookie(req: NextRequest, res: NextResponse): string {
+  const existing = req.cookies.get(CSRF_COOKIE)?.value
+  if (existing && existing.length >= 32) return existing
+  const token = generateCsrfToken()
+  res.cookies.set(CSRF_COOKIE, token, csrfCookieOptions(process.env.NODE_ENV === 'production'))
+  return token
 }
 
-function withSecurityHeaders(
-  response: NextResponse,
-  pathname: string,
-  mode: 'page' | 'api' | 'static' = 'page'
+type HeaderMode = 'page' | 'api' | 'static'
+
+function applyHeaders(
+  headers: Headers,
+  mode: HeaderMode,
+  options?: { nonce?: string }
 ) {
-  applySecurityHeaders(response.headers, pathname, mode)
+  stripPermissiveCors(headers)
+  if (mode === 'static') {
+    setHeaderList(headers, STATIC_ASSET_HEADERS)
+    return
+  }
+  if (mode === 'api') {
+    setHeaderList(headers, API_BASE_HEADERS)
+    return
+  }
+  if (options?.nonce) {
+    headers.set('Content-Security-Policy', buildPageCsp(options.nonce))
+  }
+  setHeaderList(headers, BASE_SECURITY_HEADERS)
+  setHeaderList(headers, NO_STORE_HEADERS)
+}
+
+function createPageResponse(req: NextRequest): NextResponse {
+  const nonce = generateNonce()
+  const csp = buildPageCsp(nonce)
+  const requestHeaders = new Headers(req.headers)
+  requestHeaders.set('x-nonce', nonce)
+  requestHeaders.set('Content-Security-Policy', csp)
+
+  const res = NextResponse.next({
+    request: { headers: requestHeaders },
+  })
+  applyHeaders(res.headers, 'page', { nonce })
+  ensureCsrfCookie(req, res)
+  return res
+}
+
+function withHeaders(response: NextResponse, pathname: string, mode: HeaderMode, nonce?: string) {
+  applyHeaders(response.headers, mode, mode === 'page' ? { nonce } : undefined)
   return response
 }
 
@@ -59,21 +93,32 @@ export async function middleware(req: NextRequest) {
   const ip = clientIp(req)
   const isApi = pathname.startsWith('/api/')
   const isStatic = isStaticAssetPath(pathname)
-  const headerMode: 'page' | 'api' | 'static' = isApi ? 'api' : isStatic ? 'static' : 'page'
 
   if (isApi && !checkRateLimit(`api:${ip}`)) {
-    return withSecurityHeaders(
+    return withHeaders(
       NextResponse.json({ error: 'Demasiadas solicitudes. Espere unos segundos.' }, { status: 429 }),
       pathname,
       'api'
     )
   }
 
-  const res = withSecurityHeaders(NextResponse.next(), pathname, headerMode)
+  if (isStatic) {
+    const res = NextResponse.next()
+    applyHeaders(res.headers, 'static')
+    return res
+  }
+
+  if (isApi) {
+    const res = NextResponse.next()
+    applyHeaders(res.headers, 'api')
+    return res
+  }
+
+  const res = createPageResponse(req)
 
   if (req.method === 'POST' && req.headers.get('next-action')) {
     if (!checkRateLimit(`action:${ip}`)) {
-      return withSecurityHeaders(
+      return withHeaders(
         NextResponse.json({ error: 'Demasiadas solicitudes. Espere unos segundos.' }, { status: 429 }),
         pathname,
         'api'
@@ -98,20 +143,22 @@ export async function middleware(req: NextRequest) {
     return res
   }
 
-  if (isStatic) {
-    return res
-  }
-
   if (user && isLogin) {
     const url = req.nextUrl.clone()
     url.pathname = '/dashboard'
-    return withSecurityHeaders(NextResponse.redirect(url), '/dashboard', 'page')
+    const redirect = NextResponse.redirect(url)
+    const nonce = generateNonce()
+    applyHeaders(redirect.headers, 'page', { nonce })
+    return redirect
   }
 
   if (!user && !isLogin && !isApi) {
     const url = req.nextUrl.clone()
     url.pathname = '/login'
-    return withSecurityHeaders(NextResponse.redirect(url), '/login', 'page')
+    const redirect = NextResponse.redirect(url)
+    const nonce = generateNonce()
+    applyHeaders(redirect.headers, 'page', { nonce })
+    return redirect
   }
 
   return res

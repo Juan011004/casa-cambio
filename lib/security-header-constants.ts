@@ -1,14 +1,7 @@
-/**
- * Cabeceras estáticas para middleware (Edge) y referencia compartida.
- * ZAP exige CSP/HSTS/XFO también en chunks de Next (`/_next/static/*`).
- */
+import { buildApiCsp, buildStaticAssetCsp } from '@/lib/csp'
 
-export const CORE_SECURITY_HEADERS: ReadonlyArray<{ key: string; value: string }> = [
-  {
-    key: 'Content-Security-Policy',
-    value:
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests",
-  },
+/** Cabeceras sin CSP (CSP se aplica por petición en middleware). */
+export const BASE_SECURITY_HEADERS: ReadonlyArray<{ key: string; value: string }> = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
@@ -29,27 +22,20 @@ export const NO_STORE_HEADERS: ReadonlyArray<{ key: string; value: string }> = [
   { key: 'Surrogate-Control', value: 'no-store' },
 ]
 
-/** Chunks estáticos: cabeceras de seguridad + caché explícita (evita alerta 10015 en assets). */
 export const STATIC_ASSET_CACHE_HEADERS: ReadonlyArray<{ key: string; value: string }> = [
   { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
 ]
 
-/** Compatibilidad con imports anteriores. */
-export const SECURITY_HEADERS = CORE_SECURITY_HEADERS
-
-export const FULL_PAGE_HEADERS: ReadonlyArray<{ key: string; value: string }> = [
-  ...CORE_SECURITY_HEADERS,
-  ...NO_STORE_HEADERS,
-]
-
-export const FULL_API_HEADERS: ReadonlyArray<{ key: string; value: string }> = [
-  ...CORE_SECURITY_HEADERS,
-  ...NO_STORE_HEADERS,
-]
-
 export const STATIC_ASSET_HEADERS: ReadonlyArray<{ key: string; value: string }> = [
-  ...CORE_SECURITY_HEADERS,
+  { key: 'Content-Security-Policy', value: buildStaticAssetCsp() },
+  ...BASE_SECURITY_HEADERS,
   ...STATIC_ASSET_CACHE_HEADERS,
+]
+
+export const API_BASE_HEADERS: ReadonlyArray<{ key: string; value: string }> = [
+  { key: 'Content-Security-Policy', value: buildApiCsp() },
+  ...BASE_SECURITY_HEADERS,
+  ...NO_STORE_HEADERS,
 ]
 
 export function isStaticAssetPath(pathname: string): boolean {

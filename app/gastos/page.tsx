@@ -10,6 +10,8 @@ import { eliminarGasto, registrarGasto } from '@/app/actions/gastos'
 import { errorMessage } from '@/lib/errorMessage'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
+import { CsrfHiddenInput } from '@/components/security/CsrfHiddenInput'
+import { useCsrfToken } from '@/hooks/useCsrfToken'
 
 type GastoRow = {
   id: string
@@ -27,6 +29,7 @@ export default function GastosPage() {
   const [rows, setRows] = useState<GastoRow[]>([])
   const [listLoading, setListLoading] = useState(true)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const csrfToken = useCsrfToken()
 
   const cargar = useCallback(async () => {
     setListLoading(true)
@@ -128,6 +131,7 @@ export default function GastosPage() {
         noValidate
         className="card-pro flex flex-col gap-3 border border-slate-200 p-4 sm:flex-row sm:flex-wrap sm:items-end"
       >
+        <CsrfHiddenInput token={csrfToken} />
         <div className="min-w-0 flex-1">
           <label className="label" htmlFor="g-concepto">
             Concepto

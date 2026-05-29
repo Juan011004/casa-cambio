@@ -11,6 +11,8 @@ import { errorMessage } from '@/lib/errorMessage'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { fechaLocalYYYYMMDD } from '@/lib/utils'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
+import { CsrfHiddenInput } from '@/components/security/CsrfHiddenInput'
+import { useCsrfToken } from '@/hooks/useCsrfToken'
 
 export function CargaInicialDialog({
   open,
@@ -29,6 +31,7 @@ export function CargaInicialDialog({
   const [cantidad, setCantidad] = useState('')
   const [promedio, setPromedio] = useState('')
   const [loading, setLoading] = useState(false)
+  const csrfToken = useCsrfToken()
 
   useEffect(() => {
     if (!open) return
@@ -104,6 +107,7 @@ export function CargaInicialDialog({
           de divisa).
         </p>
         <form onSubmit={(e) => void submit(e)} className="mt-4 space-y-3 text-[13px]">
+          <CsrfHiddenInput token={csrfToken} />
           <div>
             <label className="label" htmlFor="ci-fecha">
               Fecha efectiva
