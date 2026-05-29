@@ -10,7 +10,9 @@ export default function Error({
   reset: () => void
 }) {
   useEffect(() => {
-    console.error('[error-boundary]', error.message)
+    if (process.env.NODE_ENV === 'development') {
+      console.error('[error-boundary]', error.message)
+    }
   }, [error])
 
   return (

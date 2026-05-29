@@ -10,6 +10,9 @@ const inter = Inter({
   display: 'swap',
 })
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export const metadata: Metadata = {
   title: 'Casa Cambio Bogotá',
   description: 'Operaciones de compra y venta',

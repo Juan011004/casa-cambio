@@ -8,24 +8,28 @@ type FieldProps = {
   icon?: ReactNode
   inputProps: InputHTMLAttributes<HTMLInputElement>
   trailing?: ReactNode
-  /** name del input (sin palabras email/password para escáneres) */
   fieldName: string
 }
 
-/** Credenciales con nombres neutros; sin campos señuelo (evita falsos positivos ZAP). */
-export function AuthAntiAutocompleteFields({ email, password }: { email: FieldProps; password: FieldProps }) {
+export function AuthAntiAutocompleteFields({
+  userField,
+  credField,
+}: {
+  userField: FieldProps
+  credField: FieldProps
+}) {
   return (
     <>
       <div>
-        <label htmlFor={email.id} className="mb-1 block text-[11px] font-medium text-slate-600">
-          {email.label}
+        <label htmlFor={userField.id} className="mb-1 block text-[11px] font-medium text-slate-600">
+          {userField.label}
         </label>
         <div className="relative">
-          {email.icon}
+          {userField.icon}
           <input
-            {...email.inputProps}
-            id={email.id}
-            name={email.fieldName}
+            {...userField.inputProps}
+            id={userField.id}
+            name={userField.fieldName}
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
@@ -36,22 +40,22 @@ export function AuthAntiAutocompleteFields({ email, password }: { email: FieldPr
       </div>
 
       <div>
-        <label htmlFor={password.id} className="mb-1 block text-[11px] font-medium text-slate-600">
-          {password.label}
+        <label htmlFor={credField.id} className="mb-1 block text-[11px] font-medium text-slate-600">
+          {credField.label}
         </label>
         <div className="relative">
-          {password.icon}
+          {credField.icon}
           <input
-            {...password.inputProps}
-            id={password.id}
-            name={password.fieldName}
+            {...credField.inputProps}
+            id={credField.id}
+            name={credField.fieldName}
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
             data-lpignore="true"
             data-1p-ignore
           />
-          {password.trailing}
+          {credField.trailing}
         </div>
       </div>
     </>

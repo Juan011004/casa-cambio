@@ -27,7 +27,7 @@ export default function LoginPage() {
   const supabase = createBrowserSupabaseClient()
   const router = useRouter()
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [cred, setCred] = useState('')
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [aceptaPolitica, setAceptaPolitica] = useState(false)
@@ -40,7 +40,7 @@ export default function LoginPage() {
     }
     setLoading(true)
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      const { error } = await supabase.auth.signInWithPassword({ email, password: cred })
       if (error) throw error
       await syncServerSessionFromClient()
       await router.refresh()
@@ -92,9 +92,9 @@ export default function LoginPage() {
             method="dialog"
           >
             <AuthAntiAutocompleteFields
-              email={{
-                id: 'cc-field-user',
-                fieldName: 'cc_uid',
+              userField={{
+                id: 'cc-fld-a',
+                fieldName: 'cc_fld_a',
                 label: 'Correo',
                 icon: (
                   <Mail className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -108,17 +108,17 @@ export default function LoginPage() {
                   className: 'input-field min-h-[38px] py-2 pl-8 text-[13px]',
                 },
               }}
-              password={{
-                id: 'cc-field-secret',
-                fieldName: 'cc_secret',
+              credField={{
+                id: 'cc-fld-b',
+                fieldName: 'cc_fld_b',
                 label: 'Contraseña',
                 icon: (
                   <Lock className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 ),
                 inputProps: {
                   type: showPass ? 'text' : 'password',
-                  value: password,
-                  onChange: (e) => setPassword(e.target.value),
+                  value: cred,
+                  onChange: (e) => setCred(e.target.value),
                   required: true,
                   placeholder: '••••••••',
                   className: 'input-field min-h-[38px] py-2 pl-8 pr-9 text-[13px]',

@@ -1,16 +1,30 @@
 /** @type {import('next').NextConfig} */
-const { HTML_SOURCE, buildHtmlHeaders, buildApiHeaders } = require('./lib/security-headers.js')
+const {
+  buildFullPageHeaders,
+  buildFullApiHeaders,
+  buildStaticAssetHeaders,
+} = require('./lib/security-headers.js')
 
 const nextConfig = {
+  poweredByHeader: false,
+  productionBrowserSourceMaps: false,
+  compiler: {
+    removeConsole:
+      process.env.NODE_ENV === 'production' ? { exclude: ['error'] } : false,
+  },
   async headers() {
     return [
       {
-        source: HTML_SOURCE,
-        headers: buildHtmlHeaders(),
+        source: '/_next/static/:path*',
+        headers: buildStaticAssetHeaders(),
       },
       {
         source: '/api/:path*',
-        headers: buildApiHeaders(),
+        headers: buildFullApiHeaders(),
+      },
+      {
+        source: '/:path*',
+        headers: buildFullPageHeaders(),
       },
     ]
   },
