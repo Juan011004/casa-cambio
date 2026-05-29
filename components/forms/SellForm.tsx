@@ -14,8 +14,6 @@ import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
 import { errorMessage } from '@/lib/errorMessage'
 import { MoneyTextField } from '@/components/forms/MoneyTextField'
-import { AceptacionPoliticaDatos } from '@/components/legal/AceptacionPoliticaDatos'
-import { usePoliticaDatos } from '@/components/legal/PoliticaDatosProvider'
 import type { MetodoPago } from '@/types/database'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
 
@@ -45,7 +43,6 @@ const METODOS: MetodoPago[] = ['Efectivo', 'Nequi', 'Cheque']
 export default function SellForm() {
   const { rows } = useDivisasMaestro()
   const [loading, setLoading] = useState(false)
-  const { aceptada: aceptaPolitica } = usePoliticaDatos()
   const { fecha } = useFechaOperativa()
 
   const opciones = useMemo(() => (rows.length ? rows : DIVISAS_FALLBACK), [rows])
@@ -175,11 +172,9 @@ export default function SellForm() {
           </div>
         </div>
 
-        <AceptacionPoliticaDatos id="acepta-politica-venta" />
-
         <button
           type="submit"
-          disabled={loading || !aceptaPolitica}
+          disabled={loading}
           className="btn-primary mt-1 min-h-[48px] w-full text-base font-semibold"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Registrar venta'}

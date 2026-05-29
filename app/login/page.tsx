@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { errorMessage } from '@/lib/errorMessage'
 import { LoginSecurityBanner } from '@/components/auth/LoginSecurityBanner'
 import { AuthAntiAutocompleteFields } from '@/components/auth/AuthAntiAutocompleteFields'
+import { AceptacionPoliticaDatos } from '@/components/legal/AceptacionPoliticaDatos'
 import { syncServerSessionFromClient } from '@/lib/auth/sync-server-session'
 
 function isTooManyRequests(err: unknown): boolean {
@@ -29,9 +30,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [aceptaPolitica, setAceptaPolitica] = useState(false)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!aceptaPolitica) {
+      toast.error('Debe aceptar la Política de Tratamiento de Datos para ingresar.')
+      return
+    }
     setLoading(true)
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -122,9 +128,15 @@ export default function LoginPage() {
               }}
             />
 
+            <AceptacionPoliticaDatos
+              id="acepta-politica-login"
+              checked={aceptaPolitica}
+              onCheckedChange={setAceptaPolitica}
+            />
+
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !aceptaPolitica}
               className="mt-1 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-[13px] font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}

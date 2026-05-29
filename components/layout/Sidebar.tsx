@@ -16,7 +16,6 @@ import {
   History,
 } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser-client'
-import { clearPoliticaDatosAceptada } from '@/components/legal/PoliticaDatosProvider'
 import { clearServerSessionCookies } from '@/lib/auth/sync-server-session'
 import { cn } from '@/lib/utils'
 
@@ -43,7 +42,6 @@ export function Sidebar() {
   const supabase = createBrowserSupabaseClient()
 
   const handleLogout = async () => {
-    clearPoliticaDatosAceptada()
     await supabase.auth.signOut()
     await clearServerSessionCookies()
     router.refresh()

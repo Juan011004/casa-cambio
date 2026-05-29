@@ -13,8 +13,6 @@ import { MoneyTextField } from '@/components/forms/MoneyTextField'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { useDivisasMaestro } from '@/hooks/useDivisasMaestro'
 import { DIVISAS_FALLBACK } from '@/lib/divisasCatalog'
-import { AceptacionPoliticaDatos } from '@/components/legal/AceptacionPoliticaDatos'
-import { usePoliticaDatos } from '@/components/legal/PoliticaDatosProvider'
 
 type Props = {
   tipo: 'DEBEN' | 'DEBO'
@@ -31,7 +29,6 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
   const [divisa, setDivisa] = useState('COP')
   const [monto, setMonto] = useState('')
   const [loading, setLoading] = useState(false)
-  const { aceptada: aceptaPolitica } = usePoliticaDatos()
   const [lista, setLista] = useState<RegistroDeuda[]>([])
   const [cargandoLista, setCargandoLista] = useState(true)
   const [editandoId, setEditandoId] = useState<string | null>(null)
@@ -226,12 +223,7 @@ export function RegistroDeudaForm({ tipo, etiquetaPersona }: Props) {
           onChange={setMonto}
           inputClassName="input-field input-numeric min-h-[48px] text-base"
         />
-        <AceptacionPoliticaDatos id={`acepta-politica-deuda-${tipo}`} />
-        <button
-          type="submit"
-          disabled={loading || !aceptaPolitica}
-          className="btn-primary min-h-[48px] w-full text-base font-semibold"
-        >
+        <button type="submit" disabled={loading} className="btn-primary min-h-[48px] w-full text-base font-semibold">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
         </button>
       </form>

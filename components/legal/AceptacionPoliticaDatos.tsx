@@ -2,28 +2,33 @@
 
 import { useState } from 'react'
 import { PoliticaDatosDialog } from '@/components/legal/PoliticaDatosDialog'
-import { usePoliticaDatos } from '@/components/legal/PoliticaDatosProvider'
 
 type Props = {
+  checked: boolean
+  onCheckedChange: (value: boolean) => void
   id?: string
   className?: string
 }
 
-export function AceptacionPoliticaDatos({ id = 'acepta-politica-datos', className }: Props) {
-  const { aceptada, setAceptada } = usePoliticaDatos()
+export function AceptacionPoliticaDatos({
+  checked,
+  onCheckedChange,
+  id = 'acepta-politica-datos',
+  className,
+}: Props) {
   const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
     <>
       <label
         htmlFor={id}
-        className={`flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-sm text-slate-800 ${className ?? ''}`}
+        className={`flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-[11px] leading-snug text-slate-800 ${className ?? ''}`}
       >
         <input
           id={id}
           type="checkbox"
-          checked={aceptada}
-          onChange={(e) => setAceptada(e.target.checked)}
+          checked={checked}
+          onChange={(e) => onCheckedChange(e.target.checked)}
           className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
         />
         <span>

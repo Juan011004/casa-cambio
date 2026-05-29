@@ -11,8 +11,6 @@ import { errorMessage } from '@/lib/errorMessage'
 import { parseFlexibleNumber } from '@/lib/parseMoney'
 import { fechaLocalYYYYMMDD } from '@/lib/utils'
 import { useFechaOperativa } from '@/components/fecha-operativa/FechaOperativaProvider'
-import { AceptacionPoliticaDatos } from '@/components/legal/AceptacionPoliticaDatos'
-import { usePoliticaDatos } from '@/components/legal/PoliticaDatosProvider'
 
 export function CargaInicialDialog({
   open,
@@ -31,7 +29,6 @@ export function CargaInicialDialog({
   const [cantidad, setCantidad] = useState('')
   const [promedio, setPromedio] = useState('')
   const [loading, setLoading] = useState(false)
-  const { aceptada: aceptaPolitica } = usePoliticaDatos()
 
   useEffect(() => {
     if (!open) return
@@ -151,14 +148,13 @@ export function CargaInicialDialog({
             value={promedio}
             onChange={setPromedio}
           />
-          <AceptacionPoliticaDatos id="acepta-politica-carga-inicial" />
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold">
               Cancelar
             </button>
             <button
               type="submit"
-              disabled={loading || !aceptaPolitica}
+              disabled={loading}
               className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
